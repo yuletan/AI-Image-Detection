@@ -50,22 +50,21 @@ def apply(img: Image.Image, name: str, param) -> Image.Image:
         small = img.resize((max(1, int(w * s)), max(1, int(h * s))), Image.BICUBIC)
         return small.resize((w, h), Image.BICUBIC)
     if name == "noise":
-        import random
+        import hashlib
+
+        import numpy as np
 
         sigma = float(param)
         px = img.convert("RGB")
-        rnd = random.Random(hash((img.size, sigma)) & 0xFFFFFFFF)
-        out = bytearray(px.tobytes())
-        # cheap deterministic-ish gaussian via Box-Muller on stdlib only (Day 0; A2 vectorises)
-        import math
-
-        for i in range(len(out)):
-            u1 = max(rnd.random(), 1e-12)
-            u2 = rnd.random()
-            z = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
-            v = out[i] + z * sigma * 255.0
-            out[i] = int(min(255, max(0, v)))
-        return Image.frombytes("RGB", px.size, bytes(out))
+        # deterministic per image (content hash), varying across images —
+        # the old stdlib loop seeded on (size, sigma) only, stamping the
+        # SAME noise field on every same-size image, ~100x slower.
+        seed = int.from_bytes(hashlib.md5(px.tobytes()).digest()[:8], "little")
+        seed ^= hash(("noise", sigma)) & 0xFFFFFFFFFFFFFFFF
+        rng = np.random.default_rng(seed)
+        arr = np.asarray(px, dtype=np.float32)
+        noisy = arr + rng.standard_normal(arr.shape, dtype=np.float32) * (sigma * 255.0)
+        return Image.fromarray(np.clip(noisy, 0, 255).astype(np.uint8))
     if name == "colorjitter":
         amt = float(param) / 100.0
         out = img
