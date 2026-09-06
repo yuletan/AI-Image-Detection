@@ -9,6 +9,7 @@ from aigc_detect.features.extract import (
     load_preprocessing_cfg,
     parse_param,
     read_split_rows,
+    sample_aug_views,
     write_index,
 )
 
@@ -103,3 +104,25 @@ def test_parser_contract_args():
 def test_chain_cache_naming():
     p = cache_path(Path("data/cache"), "test", "screenshot_repost", "chain")
     assert p.name == "test_screenshot_repost_chain.npy"
+
+
+def test_sample_aug_views_deterministic_and_mixed():
+    a = sample_aug_views(60, seed=42)
+    b = sample_aug_views(60, seed=42)
+    assert a == b and len(a) == 60  # reproducible
+    assert sample_aug_views(60, seed=7) != a  # seed matters
+    kinds = {(v["transform"], v["chain"]) for v in a}
+    assert any(c for _, c in kinds) and any(not c for _, c in kinds)  # chains + singles
+    with pytest.raises(ValueError):
+        sample_aug_views(0, seed=42)
+
+
+def test_write_index_extra_cols(tmp_path: Path):
+    rows = [{"image_path": "a.jpg", "label": 1, "source": "s",
+             "generator": "g", "split": "train",
+             "transform": "jpeg", "param": "70"}]
+    out = tmp_path / "r.index.csv"
+    write_index(rows, out, extra=("transform", "param"))
+    with out.open(encoding="utf-8") as f:
+        back = list(csv.DictReader(f))
+    assert back[0]["transform"] == "jpeg" and back[0]["param"] == "70"
