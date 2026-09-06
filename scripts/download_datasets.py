@@ -27,9 +27,11 @@ CIFAKE_HF_CANDIDATES = [
     "dragonintelligence/CIFAKE-image-dataset",
 ]
 CIFAKE_KAGGLE = "birdy654/cifake-real-and-ai-generated-synthetic-images"
-SID_SET_HF = "saberzl/SID_Set"  # 240k rows (210k train/30k val); labels: 0 real, 1 full_synthetic, 2 tampered
+SID_SET_HF = "saberzl/SID_Set"  # 240k rows; 0 real, 1 synth, 2 tampered
 SID_SET_FALLBACK = "HaoxuanLi/SID_Set"
-WILDFAKE_MODELSCOPE = "hy2628982280/WildFake"  # https://modelscope.cn/datasets/hy2628982280/WildFake/summary
+WILDFAKE_MODELSCOPE = (
+    "hy2628982280/WildFake"  # https://modelscope.cn/datasets/hy2628982280/WildFake/summary
+)
 WILDFAKE_FALLBACK = "WildFake/WildFake"
 
 
