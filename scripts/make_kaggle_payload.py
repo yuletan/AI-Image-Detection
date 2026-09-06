@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import shutil
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,33 @@ def build_payload(manifest: Path, out_dir: Path, root: Path = REPO_ROOT) -> dict
     shutil.copyfile(manifest, out_dir / "manifest.csv")
     print(f"[payload] {len(rows)} files, {total / 2**30:.2f} GB -> {out_dir}", flush=True)
     return {"n_files": len(rows), "bytes": total, "out_dir": str(out_dir)}
+
+
+def write_zip(out_dir: Path, archive: Path) -> Path:
+    """Zip the payload dir with per-file progress (shutil is silent for minutes).
+
+    JPEGs don't recompress, so ZIP_STORED is ~as small and much faster.
+    Writes to a temp name + atomic rename: a killed run never leaves a
+    fake-complete zip behind.
+    """
+    import zipfile
+
+    files = sorted(p for p in out_dir.rglob("*") if p.is_file())
+    tmp = archive.with_suffix(".zip.partial")
+    if tmp.exists():
+        tmp.unlink()  # leftover from a killed run
+    total_in, t0 = 0, time.perf_counter()
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_STORED) as z:
+        for i, p in enumerate(files, 1):
+            z.write(p, p.relative_to(out_dir.parent).as_posix())
+            total_in += p.stat().st_size
+            if i % 2000 == 0 or i == len(files):
+                el = time.perf_counter() - t0
+                print(f"[payload] zip {i}/{len(files)} "
+                      f"({total_in / 2**30:.2f} GB, {el:.0f}s)", flush=True)
+    print(f"[payload] zip wrote {tmp.stat().st_size / 2**30:.2f} GB", flush=True)
+    tmp.replace(archive)  # atomic on the same volume
+    return archive
 
 
 def verify_archive(archive: Path, min_files: int) -> int:
@@ -75,8 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     info = build_payload(a.manifest, a.out, a.root)
     if a.zip:
-        archive = Path(shutil.make_archive(str(a.out), "zip", root_dir=a.out.parent,
-                                           base_dir=a.out.name))
+        archive = write_zip(a.out, a.out.with_suffix(".zip"))
         print(f"[payload] archive: {archive} "
               f"({archive.stat().st_size / 2**30:.2f} GB)", flush=True)
         n = verify_archive(archive, info["n_files"] + 1)
