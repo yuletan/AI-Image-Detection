@@ -40,6 +40,7 @@ def test_cache_naming_contract():
     assert p.name == "test_jpeg_70.npy"
     p = cache_path(Path("data/cache"), "train", "clean", None)
     assert p.parent.name == "cache" and p.suffix == ".npy"
+    assert cache_path("data/cache", "test", "jpeg", 70).name == "test_jpeg_70.npy"
 
 
 def test_preproc_cfg_matches_yaml():
