@@ -22,9 +22,10 @@ import argparse
 from pathlib import Path
 
 CIFAKE_HF_CANDIDATES = [
+    "yanbax/CIFAKE_autotrain_compatible",  # train-only, fewer files — try first
     "Hemg/cifake-real-and-ai-generated-synthetic-images",
-    "batgre/CIFAKE",
     "dragonintelligence/CIFAKE-image-dataset",
+    # NOTE: batgre/CIFAKE excluded — 19,996 file refs, hangs on resolve
 ]
 CIFAKE_KAGGLE = "birdy654/cifake-real-and-ai-generated-synthetic-images"
 SID_SET_HF = "saberzl/SID_Set"  # 240k rows; 0 real, 1 synth, 2 tampered
