@@ -27,8 +27,10 @@ CIFAKE_HF_CANDIDATES = [
     "dragonintelligence/CIFAKE-image-dataset",
 ]
 CIFAKE_KAGGLE = "birdy654/cifake-real-and-ai-generated-synthetic-images"
-SID_SET_HF = "HaoxuanLi/SID_Set"  # use with datasets.load_dataset(..., streaming=True)
-WILDFAKE_MODELSCOPE = "WildFake/WildFake"  # modelscope: translate page; mirror if blocked
+SID_SET_HF = "saberzl/SID_Set"  # 240k rows (210k train/30k val); labels: 0 real, 1 full_synthetic, 2 tampered
+SID_SET_FALLBACK = "HaoxuanLi/SID_Set"
+WILDFAKE_MODELSCOPE = "hy2628982280/WildFake"  # https://modelscope.cn/datasets/hy2628982280/WildFake/summary
+WILDFAKE_FALLBACK = "WildFake/WildFake"
 
 
 def download_cifake(out: Path, limit: int | None = None) -> Path:
@@ -82,48 +84,68 @@ def download_cifake(out: Path, limit: int | None = None) -> Path:
 
 
 def fetch_sid_set(out: Path, limit: int = 2000) -> Path:
-    """Streaming subset via HF datasets (no full download on Day 0)."""
+    """Streaming subset via HF datasets (no full download on Day 0).
+
+    Source: saberzl/SID_Set (240k rows). Labels: 0 real, 1 full_synthetic, 2 tampered.
+    Binary mapping for Day 1 A1: label==0 -> 0 (real), label in (1,2) -> 1 (fake).
+    """
     try:
         from datasets import load_dataset
     except ImportError:
         print("[sid_set] pip install datasets to stream; writing instructions only.")
         (out / "sid_set_STREAMING.txt").write_text(
-            f"Use: load_dataset({SID_SET_HF!r}, streaming=True).take({limit})\n",
+            f"Use: load_dataset({SID_SET_HF!r}, streaming=True).take({limit})\n"
+            "Labels: 0 real, 1 full_synthetic->fake, 2 tampered->fake.\n",
             encoding="utf-8",
         )
         return out
-    ds = load_dataset(SID_SET_HF, streaming=True, split="train")
-    dest = out / "sid_set_subset"
-    dest.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for _ex in ds:
-        if n >= limit:
-            break
-        # Day 1 A1 converts ex -> {image, label, generator}; Day 0 just counts.
-        n += 1
-    print(f"[sid_set] streamed {n} examples (subset manifest: Day 1 A1).")
-    return dest
+    last_err = None
+    for repo in (SID_SET_HF, SID_SET_FALLBACK):
+        try:
+            ds = load_dataset(repo, streaming=True, split="train")
+            dest = out / "sid_set_subset"
+            dest.mkdir(parents=True, exist_ok=True)
+            n = 0
+            for _ex in ds:
+                if n >= limit:
+                    break
+                # Day 1 A1 converts ex -> {image, label, generator}; Day 0 just counts.
+                n += 1
+            print(f"[sid_set] {repo}: streamed {n} (subset manifest: Day 1 A1).")
+            return dest
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"[sid_set] all mirrors failed: {last_err}")
 
 
 def fetch_wildfake(out: Path, limit: int = 2000) -> Path:
-    """WildFake lives on ModelScope. Try modelscope SDK; else print manual steps."""
+    """WildFake lives on ModelScope CN. Try modelscope SDK; else print manual steps.
+
+    Source: https://modelscope.cn/datasets/hy2628982280/WildFake/summary
+    """
     dest = out / "wildfake_subset"
     dest.mkdir(parents=True, exist_ok=True)
-    try:
-        from modelscope.hub.snapshot_download import snapshot_download  # type: ignore
+    for repo in (WILDFAKE_MODELSCOPE, WILDFAKE_FALLBACK):
+        try:
+            from modelscope.hub.snapshot_download import snapshot_download  # type: ignore
 
-        snapshot_download(WILDFAKE_MODELSCOPE, cache_dir=str(dest))
-        print(f"[wildfake] snapshot at {dest}")
-    except Exception as e:
-        (dest / "MANUAL.txt").write_text(
-            "WildFake is on ModelScope (translate page).\n"
-            f"Repo: {WILDFAKE_MODELSCOPE}\n"
-            f"Auto-download failed ({e}). Manual: install modelscope, "
-            "snapshot_download, take a balanced ~20k subset (>=4 generators).\n"
-            "If blocked/slow: use SID_Set streaming for the first 24h.\n",
-            encoding="utf-8",
-        )
-        print(f"[wildfake] manual steps written to {dest / 'MANUAL.txt'}")
+            snapshot_download(repo, cache_dir=str(dest))
+            print(f"[wildfake] {repo}: snapshot at {dest}")
+            return dest
+        except Exception as e:
+            last_err = e
+            continue
+    (dest / "MANUAL.txt").write_text(
+        "WildFake is on ModelScope CN (translate page).\n"
+        "URL: https://modelscope.cn/datasets/hy2628982280/WildFake/summary\n"
+        f"Repos tried: {WILDFAKE_MODELSCOPE}, {WILDFAKE_FALLBACK}\n"
+        f"Auto-download failed ({last_err}). Manual: pip install modelscope, "
+        "snapshot_download('hy2628982280/WildFake'), take balanced ~20k (>=4 generators).\n"
+        "If blocked/slow: use SID_Set streaming for the first 24h.\n",
+        encoding="utf-8",
+    )
+    print(f"[wildfake] manual steps written to {dest / 'MANUAL.txt'}")
     return dest
 
 
