@@ -12,6 +12,11 @@ build/
 data/raw/
 data/processed/
 data/cache/
+data/kaggle_payload/
+data/kaggle_payload.zip
+data/kaggle_payload.zip.partial
+data/kaggle_upload/
+data/kaggle_code_upload/
 !data/README.md
 !data/.gitkeep
 results/
@@ -19,3 +24,5 @@ weights/
 wandb/
 .ipynb_checkpoints/
 .DS_Store
+.env
+.env.*
