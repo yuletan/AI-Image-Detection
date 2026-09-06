@@ -171,7 +171,7 @@ def extract(args: argparse.Namespace) -> dict:
     print(f"[extract] {len(rows)} rows split={args.split} "
           f"{'chain' if use_chain else 'transform'}={name} param={param}", flush=True)
 
-    if not use_chain and args.transform == "clean" and param is not None:
+    if not randaug and not use_chain and args.transform == "clean" and param is not None:
         raise ValueError(f"clean takes no param, got {param!r}")
 
     import torch
