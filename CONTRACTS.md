@@ -1,7 +1,7 @@
-# CONTRACTS.md — interfaces (Day 0 placeholder · FREEZE Day 1 10:30)
+# CONTRACTS.md — interfaces (FROZEN 2026-09-06)
 
-> Agent-0 placeholder. Day 1 09:00–10:30 the human locks these; after 10:30
-> no interface changes without an explicit gate. All agents build against this file.
+> **FROZEN 2026-09-06 by yuletan.** No interface changes without an explicit
+> gate review. All agents/modules build against this file.
 
 ## 1) manifest.csv
 
