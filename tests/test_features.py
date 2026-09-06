@@ -93,5 +93,12 @@ def test_parser_contract_args():
     a = ap.parse_args(["--split", "test", "--transform", "jpeg", "--param", "70"])
     assert (a.split, a.transform, a.param) == ("test", "jpeg", "70")
     assert a.model == "ViT-L-14" and a.precision == "auto"
+    b = ap.parse_args(["--split", "test", "--chain", "screenshot_repost"])
+    assert b.chain == "screenshot_repost" and b.transform == "clean"
     with pytest.raises(SystemExit):
-        ap.parse_args(["--split", "test"])  # --transform required
+        ap.parse_args([])  # --split required
+
+
+def test_chain_cache_naming():
+    p = cache_path(Path("data/cache"), "test", "screenshot_repost", "chain")
+    assert p.name == "test_screenshot_repost_chain.npy"

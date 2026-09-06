@@ -127,19 +127,23 @@ def extract(args: argparse.Namespace) -> dict:
     import numpy as np
 
     t_all = time.perf_counter()
-    param = parse_param(args.transform, args.param)
+    use_chain = args.chain is not None
+    if use_chain and args.transform != "clean":
+        raise ValueError("--chain cannot be combined with --transform")
+    name = args.chain if use_chain else args.transform
+    param = "chain" if use_chain else parse_param(args.transform, args.param)
     rows = read_split_rows(Path(args.manifest), args.split, args.limit)
     print(f"[extract] {len(rows)} rows split={args.split} "
-          f"transform={args.transform} param={param}", flush=True)
+          f"{'chain' if use_chain else 'transform'}={name} param={param}", flush=True)
 
-    if args.transform == "clean" and param is not None:
+    if not use_chain and args.transform == "clean" and param is not None:
         raise ValueError(f"clean takes no param, got {param!r}")
 
     import torch
     from PIL import Image
     from torch.utils.data import DataLoader, Dataset
 
-    from aigc_detect.transforms import apply
+    from aigc_detect.transforms import apply, apply_chain
 
     torch.manual_seed(args.seed)
     preproc = build_preprocess(load_preprocessing_cfg(Path(args.preproc)))
@@ -163,7 +167,9 @@ def extract(args: argparse.Namespace) -> dict:
             try:
                 with Image.open(REPO_ROOT / rows[i]["image_path"]) as im:
                     img = im.convert("RGB")
-                    if args.transform != "clean":
+                    if use_chain:
+                        img = apply_chain(img, args.chain)
+                    elif args.transform != "clean":
                         img = apply(img, args.transform, param)
                     return preproc(img)
             except Exception as e:
@@ -200,7 +206,7 @@ def extract(args: argparse.Namespace) -> dict:
 
     cache_dir = Path(args.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    stem = cache_stem(cache_dir, args.split, args.transform, param)
+    stem = cache_stem(cache_dir, args.split, name, param)
     npy_path = stem.with_suffix(".npy")
     np.save(npy_path, feats)
     write_index(rows, stem.parent / (stem.name + ".index.csv"))
@@ -208,7 +214,8 @@ def extract(args: argparse.Namespace) -> dict:
     meta = {"model": args.model, "pretrained": args.pretrained, "device": device,
             "precision": precision, "batch_size": args.batch_size,
             "workers": args.workers, "split": args.split,
-            "transform": args.transform, "param": param, "n_images": len(rows),
+            "transform": name, "param": param, "chain": args.chain,
+            "n_images": len(rows),
             "broken": len(ds.broken), "seconds": round(total, 1),
             "imgs_per_sec": round(len(rows) / total, 1),
             "fwd_seconds": round(t_fwd, 1)}
@@ -224,9 +231,11 @@ def extract(args: argparse.Namespace) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Frozen CLIP extraction -> cache (CONTRACTS §3)")
     ap.add_argument("--split", required=True, help="manifest split (train/val/test/heldout)")
-    ap.add_argument("--transform", required=True,
+    ap.add_argument("--transform", default="clean",
                       help="e.g. clean, jpeg, blur (see transforms.yaml)")
     ap.add_argument("--param", default=None, help="e.g. 70; null/None for clean")
+    ap.add_argument("--chain", default=None,
+                      help="chain name (e.g. screenshot_repost); no --transform with it")
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     ap.add_argument("--preproc", type=Path, default=DEFAULT_PREPROC)
