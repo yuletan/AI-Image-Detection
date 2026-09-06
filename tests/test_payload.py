@@ -8,7 +8,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from make_kaggle_payload import build_payload, main  # noqa: E402
+from make_kaggle_payload import build_payload, main, verify_archive  # noqa: E402
 
 
 def _img(path: Path) -> Path:
@@ -61,3 +61,19 @@ def test_main_writes_zip(tmp_path: Path):
     with zipfile.ZipFile(zf) as z:
         names = z.namelist()
     assert any(n.endswith("manifest.csv") for n in names)
+
+
+def test_verify_archive_rejects_garbage(tmp_path: Path):
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip" * 100)
+    with pytest.raises(RuntimeError, match="not a valid zip"):
+        verify_archive(bad, 1)
+
+
+def test_verify_archive_checks_entry_count(tmp_path: Path):
+    mp = _manifest(tmp_path, ["data/raw/y.jpg"])
+    out = tmp_path / "payload"
+    assert main(["--manifest", str(mp), "--out", str(out),
+                 "--root", str(tmp_path), "--zip"]) == 0
+    with pytest.raises(RuntimeError, match="expected >="):
+        verify_archive(out.with_suffix(".zip"), 10**9)

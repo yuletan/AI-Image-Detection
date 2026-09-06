@@ -45,6 +45,27 @@ def build_payload(manifest: Path, out_dir: Path, root: Path = REPO_ROOT) -> dict
     return {"n_files": len(rows), "bytes": total, "out_dir": str(out_dir)}
 
 
+def verify_archive(archive: Path, min_files: int) -> int:
+    """Open the zip (reads its central directory) and sanity-check it.
+
+    Catches truncated/interleaved writes immediately instead of on Kaggle.
+    Returns the entry count. Raises RuntimeError on any problem.
+    """
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(archive) as z:
+            names = z.namelist()
+    except Exception as e:
+        raise RuntimeError(f"archive {archive} is not a valid zip: {e}") from e
+    if len(names) < min_files:
+        raise RuntimeError(f"archive {archive}: only {len(names)} entries, "
+                           f"expected >= {min_files}")
+    if not any(n.endswith("manifest.csv") for n in names):
+        raise RuntimeError(f"archive {archive}: manifest.csv missing")
+    return len(names)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Pack manifest payload for Kaggle upload")
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -54,10 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     info = build_payload(a.manifest, a.out, a.root)
     if a.zip:
-        archive = shutil.make_archive(str(a.out), "zip", root_dir=a.out.parent,
-                                      base_dir=a.out.name)
+        archive = Path(shutil.make_archive(str(a.out), "zip", root_dir=a.out.parent,
+                                           base_dir=a.out.name))
         print(f"[payload] archive: {archive} "
-              f"({Path(archive).stat().st_size / 2**30:.2f} GB)", flush=True)
+              f"({archive.stat().st_size / 2**30:.2f} GB)", flush=True)
+        n = verify_archive(archive, info["n_files"] + 1)
+        print(f"[payload] archive OK: {n} entries, central directory valid",
+              flush=True)
     print(f"[payload] done: {info}", flush=True)
     return 0
 
