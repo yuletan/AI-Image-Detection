@@ -80,6 +80,10 @@ transforms. Damage concentrates at strict operating points (noise 0.10 costs
 analysis, not backbone surgery. No Day-0 numbers exist (skeleton only) —
 v0 is the first measured point.
 
+Overnight aug cache (E1 input, 2026-09-06): `train_randaug3_seed42.npy` —
+60,000x768 (K=3 views x 20k train, seed 42), 63.6 img/s on T4, 0 broken.
+Local only (`data/kaggle_cache/`, gitignored).
+
 ## Parameter budget
 
 - Primary: CLIP ViT-L/14 frozen (~0.43B) + MLP head (~0.5M) → ~0.43B total, ≪ 2B cap.

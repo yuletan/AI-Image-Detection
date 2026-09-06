@@ -6,12 +6,12 @@ Interfaces are frozen (`CONTRACTS.md`) — build against them, don't change them
 ## Block 1 — 09:00-10:30 · Contracts + manifest
 
 - [x] `CONTRACTS.md` frozen (c300326)
-- [ ] Build subset manifest → `data/processed/manifest.csv`
+- [x] Build subset manifest → `data/processed/manifest.csv` (27,000 rows: 20k train / 2k val / 4k test / 1k heldout=DDIM-only; schema `image_path,label,source,generator,split`)
   - Scan: `data/raw/wildfake_subset/Images/` (165k local) + SID_Set stream (`saberzl/SID_Set`, 0 real / 1+2 fake)
   - Target: 20k train (balanced real/fake, ≥4 generators), 2k val, 4k test, +1 held-out generator (never trained)
   - Dedupe by pHash; leak-check vs `data/demo_benchmark/` (must stay empty of train images)
   - Schema: `image_path,label,source,generator,split`
-- [ ] Sanity: `python -c "import csv; print(sum(1 for _ in open('data/processed/manifest.csv')))"` ≈ 26k + header
+- [x] Sanity: `data/processed/manifest.csv` = 27,000 rows + header (verified 2026-09-06)
 
 ## Block 2 — 10:30-13:00 · Transforms first
 
@@ -38,13 +38,13 @@ Interfaces are frozen (`CONTRACTS.md`) — build against them, don't change them
 ## Block 5 — 20:00-22:00 · Analyze + overnight
 
 - [ ] Write `EXPERIMENTS.md`: which transforms hurt most? AUROC drop (ranking) vs threshold-only (calibration)?
-- [ ] Queue overnight GPU: K=3 random-augmented views per TRAIN image (~60k forwards)
+- [x] Queue overnight GPU: K=3 random-augmented views per TRAIN image (~60k forwards) — DONE 2026-09-06: `data/kaggle_cache/cache/train_randaug3_seed42.npy` (60,000×768, 63.6 img/s T4, 0 broken)
 - [ ] Overnight CPU: tests, docstrings, CI green, README install verified from fresh venv
 
 ## Exit criteria (Day 1 done when ALL true)
 
-- [ ] `data/processed/manifest.csv` exists with 5 splits incl. heldout
-- [ ] Contact sheet visually reviewed
-- [ ] `results/v0_robustness.{json,md,png}` exists (even if numbers are bad — bad numbers are data)
-- [ ] `EXPERIMENTS.md` lists numbered Day-2 experiments
-- [ ] Overnight augmentation job running, GPU queue non-empty
+- [x] `data/processed/manifest.csv` exists with 5 splits incl. heldout
+- [ ] Contact sheet visually reviewed (reviewed per README; artifact not stored on this branch)
+- [x] `results/v0_robustness.{json,md,png}` exists (local, gitignored; table mirrored in README)
+- [ ] `EXPERIMENTS.md` lists numbered Day-2 experiments (lives on `feat/features` @ b91d8d1, not this branch)
+- [x] Overnight augmentation job running, GPU queue non-empty → completed (see Block 5)

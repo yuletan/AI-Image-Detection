@@ -12,6 +12,7 @@ build/
 data/raw/
 data/processed/
 data/cache/
+data/kaggle_cache/
 data/kaggle_payload/
 data/kaggle_payload.zip
 data/kaggle_payload.zip.partial
