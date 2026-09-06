@@ -1,0 +1,57 @@
+[project]
+name = "aigc-detect"
+version = "0.0.0"
+description = "Robust AIGC image detection — frozen CLIP + aug-trained head + TTA (TikTok TechJam 2026 PS#5)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "yuletan" }]
+dependencies = [
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "open-clip-torch>=2.24",
+  "timm>=0.9",
+  "peft>=0.8",
+  "Pillow>=10.0",
+  "albumentations>=1.4",
+  "scikit-learn>=1.4",
+  "pandas>=2.0",
+  "matplotlib>=3.8",
+  "torchmetrics>=1.0",
+  "huggingface-hub>=0.22",
+  "datasets>=2.18",
+  "pyyaml>=6.0",
+  "tqdm>=4.66",
+  "ImageHash>=4.3",
+  "safetensors>=0.4",
+  "gradio>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+  "pre-commit>=3.0",
+]
+
+[project.scripts]
+aigc-predict = "aigc_detect.cli.predict:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aigc_detect"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

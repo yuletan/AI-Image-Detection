@@ -1,0 +1,7 @@
+# Final-candidate training config (pinned Day 2 18:00; placeholder on Day 0).
+backbone: "ViT-L-14-openai"   # open_clip, frozen
+image_size: 224
+head: {hidden: 512, dropout: 0.2, epochs: 30, lr: 1.0e-3, seeds: [0, 1, 2]}
+augment: {p: 0.5, views_per_image: 3, mix_clean: 0.5}
+tta: ["clean", ["jpeg", 70], ["resize", 0.5], ["centercrop", 80], "flip_h"]
+threshold: {choose_at: "1%FPR on clean val"}

@@ -1,0 +1,2 @@
+QUARANTINE: COCO val2017 (real) vs DALL-E Advanced (fake).
+Demo-only benchmark. NEVER in train. Leak-checked with pHash.

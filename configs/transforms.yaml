@@ -1,0 +1,19 @@
+# Official transform table — exact eval parameters (Day 1 audit: kernel/sigma semantics).
+# Noise sigma is on [0,1] floats. Resize scales then upscales back to original size.
+transforms:
+  clean: [null]
+  jpeg: [90, 70, 50, 30]
+  blur: [0.5, 1.0, 2.0]        # Gaussian sigma
+  resize: [0.5, 0.25]          # scale factor, BICUBIC, then back to orig size
+  noise: [0.02, 0.05, 0.10]    # gaussian sigma on [0,1]
+  colorjitter: [20]            # ±20% brightness/contrast/saturation
+  centercrop: [80]             # 80% center crop then resize back
+  flip: ["h"]
+chains:
+  screenshot_repost: [["resize", 0.5], ["jpeg", 70], ["centercrop", 80]]
+  filter_app: [["colorjitter", 20], ["jpeg", 50]]
+preprocessing:
+  size: 224
+  center_crop: true
+  mean: [0.48145466, 0.4578275, 0.40821073]   # CLIP
+  std: [0.26862954, 0.26130258, 0.27577711]
