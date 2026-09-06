@@ -19,26 +19,65 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import urllib.request
-import zipfile
 from pathlib import Path
 
-CIFAKE_URL = "https://github.com/junyanz/CIFAKE/releases/download/v1.0/CIFAKE.zip"
+CIFAKE_HF_CANDIDATES = [
+    "Hemg/cifake-real-and-ai-generated-synthetic-images",
+    "batgre/CIFAKE",
+    "dragonintelligence/CIFAKE-image-dataset",
+]
+CIFAKE_KAGGLE = "birdy654/cifake-real-and-ai-generated-synthetic-images"
 SID_SET_HF = "HaoxuanLi/SID_Set"  # use with datasets.load_dataset(..., streaming=True)
 WILDFAKE_MODELSCOPE = "WildFake/WildFake"  # modelscope: translate page; mirror if blocked
 
 
 def download_cifake(out: Path, limit: int | None = None) -> Path:
+    """CIFAKE via HuggingFace (sanity only). Falls back to Kaggle instructions."""
     dest = out / "cifake"
     dest.mkdir(parents=True, exist_ok=True)
-    zpath = dest / "CIFAKE.zip"
-    if not any(dest.iterdir()):
-        print(f"[cifake] downloading {CIFAKE_URL} ...")
-        urllib.request.urlretrieve(CIFAKE_URL, zpath)
-        with zipfile.ZipFile(zpath) as z:
-            z.extractall(dest)
-        zpath.unlink(missing_ok=True)
-    print(f"[cifake] ready at {dest} (sanity only — do NOT train robustness here)")
+    if any(dest.iterdir()):
+        print(f"[cifake] already present at {dest}")
+        return dest
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        (dest / "MANUAL.txt").write_text(
+            "CIFAKE (sanity only, 32x32):\n"
+            f"1) HF: load_dataset({CIFAKE_HF_CANDIDATES[0]!r})\n"
+            f"2) Kaggle: kaggle datasets download -d {CIFAKE_KAGGLE} -p data/raw/cifake --unzip\n"
+            "pip install datasets kagglehub to auto-fetch.\n",
+            encoding="utf-8",
+        )
+        print(f"[cifake] pip install datasets for auto-fetch; manual at {dest / 'MANUAL.txt'}")
+        return dest
+    last_err = None
+    for repo in CIFAKE_HF_CANDIDATES:
+        try:
+            print(f"[cifake] trying HF {repo} ...")
+            ds = load_dataset(repo, split="train", streaming=True)
+            n = 0
+            cap = limit or 2000
+            for ex in ds:
+                if n >= cap:
+                    break
+                # Most mirrors have {image, label}; save a small subset for sanity tests
+                img = ex.get("image") or ex.get("img")
+                if img is not None:
+                    try:
+                        img.save(dest / f"{n:05d}_{ex.get('label', 'x')}.jpg")
+                    except Exception:
+                        pass
+                n += 1
+            print(f"[cifake] saved {n} sanity images to {dest} (full set not needed)")
+            return dest
+        except Exception as e:  # try next mirror
+            last_err = e
+            continue
+    (dest / "MANUAL.txt").write_text(
+        f"Auto-fetch failed ({last_err}).\nKaggle: kaggle datasets download -d {CIFAKE_KAGGLE}\n",
+        encoding="utf-8",
+    )
+    print(f"[cifake] all HF mirrors failed; see {dest / 'MANUAL.txt'}")
     return dest
 
 
@@ -116,15 +155,24 @@ def main(argv=None) -> int:
     only = "all" if args.all else args.only
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
-    if only in ("cifake", "all"):
-        download_cifake(out)
-    if only in ("sid_set", "all"):
-        fetch_sid_set(out, limit=args.limit)
-    if only in ("wildfake", "all"):
-        fetch_wildfake(out, limit=args.limit)
-    if only in ("demo", "all"):
-        make_demo_quarantine(Path("data"))
+    failed = []
+    for name, fn in [
+        ("cifake", lambda: download_cifake(out, limit=args.limit)),
+        ("sid_set", lambda: fetch_sid_set(out, limit=args.limit)),
+        ("wildfake", lambda: fetch_wildfake(out, limit=args.limit)),
+        ("demo", lambda: make_demo_quarantine(Path("data"))),
+    ]:
+        if only not in (name, "all"):
+            continue
+        try:
+            fn()
+        except Exception as e:
+            print(f"[{name}] FAILED: {e} — continuing with next dataset")
+            failed.append(name)
     print("done. Next: Day 1 A1 builds manifest (20k/2k/4k + held-out).")
+    if failed:
+        print(f"failed: {failed} (see data/raw/*/MANUAL.txt)")
+        return 1
     return 0
 
 
