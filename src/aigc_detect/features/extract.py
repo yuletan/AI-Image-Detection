@@ -185,7 +185,28 @@ def extract(args: argparse.Namespace) -> dict:
     model, dim = load_backbone(args.model, args.pretrained, device, precision)
     feats = np.empty((len(rows), dim), dtype=np.float32)
     use_amp = device.startswith("cuda") and precision == "fp16"
-    done, t_fwd = 0, 0.0
+    state = {"done": 0, "last_batch": time.perf_counter(), "stop": False}
+
+    def _heartbeat() -> None:
+        # Fires while the main loop blocks inside slow CPU transforms, so a
+        # quiet log means "working", not "stuck". Daemon: dies with the job.
+        while not state["stop"]:
+            time.sleep(args.heartbeat)
+            if state["stop"]:
+                break
+            el = time.perf_counter() - t_all
+            idle = time.perf_counter() - state["last_batch"]
+            print(f"[extract] alive: {state['done']}/{len(rows)} "
+                  f"({state['done'] / el:.1f} img/s avg, last batch {idle:.0f}s ago)",
+                  flush=True)
+
+    hb = None
+    if args.heartbeat > 0:
+        import threading
+
+        hb = threading.Thread(target=_heartbeat, daemon=True)
+        hb.start()
+    done, t_fwd, next_report = 0, 0.0, args.progress_every
     with torch.no_grad():
         for batch in loader:
             t0 = time.perf_counter()
@@ -200,9 +221,14 @@ def extract(args: argparse.Namespace) -> dict:
             n = out.shape[0]
             feats[done:done + n] = out.cpu().numpy()
             done += n
-            if done % (args.batch_size * 10) == 0 or done == len(rows):
+            state.update(done=done, last_batch=time.perf_counter())
+            if done >= next_report or done == len(rows):
                 el = time.perf_counter() - t_all
-                print(f"[extract] {done}/{len(rows)} ({done / el:.1f} img/s)", flush=True)
+                eta = (len(rows) - done) / (done / el) if done else 0
+                print(f"[extract] {done}/{len(rows)} ({done / el:.1f} img/s, "
+                      f"eta {eta:.0f}s)", flush=True)
+                next_report += args.progress_every
+    state["stop"] = True
 
     cache_dir = Path(args.cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--limit", type=int, default=0, help="first N rows only (0=all; smoke test)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--skip-broken", action="store_true", help="zero-fill unreadable images")
+    ap.add_argument("--progress-every", type=int, default=1000,
+                      help="progress line every N images")
+    ap.add_argument("--heartbeat", type=int, default=30,
+                      help="alive-line every N sec while blocked (0=off)")
     return ap
 
 
