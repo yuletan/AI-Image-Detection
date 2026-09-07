@@ -135,6 +135,7 @@ def load_backbone(backbone: str, model_name: str, pretrained: str, device: str, 
         # Native DINOv2 res is 518; we extract at the shared 224 pipeline
         # (timm interpolates pos-embed; the DINOv2 paper also evals at 224).
         model = timm.create_model(name, pretrained=True, num_classes=0, img_size=224)
+        model.to(device)  # timm (unlike open_clip) leaves the model on CPU
         model.eval()
         for p in model.parameters():
             p.requires_grad_(False)
