@@ -5,10 +5,12 @@ import pytest
 
 from aigc_detect.features import cache_path
 from aigc_detect.features.extract import (
+    DINOV2_DIM,
     build_parser,
     load_preprocessing_cfg,
     parse_param,
     read_split_rows,
+    resolve_backbone,
     sample_aug_views,
     write_index,
 )
@@ -33,6 +35,23 @@ def test_parse_param():
     assert parse_param("clean", "null") is None
     assert parse_param("clean", "None") is None
     assert parse_param("clean", None) is None
+
+
+def test_resolve_backbone_specs():
+    clip = resolve_backbone("clip")
+    assert clip["kind"] == "open_clip" and clip["dim"] == 768
+    assert clip["mean"] == [0.48145466, 0.4578275, 0.40821073]
+    dino = resolve_backbone("dinov2")
+    assert dino["kind"] == "timm" and dino["dim"] == DINOV2_DIM == 1024
+    assert dino["mean"] == [0.485, 0.456, 0.406] and len(dino["std"]) == 3
+    with pytest.raises(ValueError):
+        resolve_backbone("resnet")
+
+
+def test_parser_backbone_flag_defaults_clip():
+    ap = build_parser()
+    assert ap.parse_args(["--split", "test"]).backbone == "clip"
+    assert ap.parse_args(["--split", "test", "--backbone", "dinov2"]).backbone == "dinov2"
 
 
 def test_cache_naming_contract():
@@ -103,7 +122,7 @@ def test_parser_contract_args():
     ap = build_parser()
     a = ap.parse_args(["--split", "test", "--transform", "jpeg", "--param", "70"])
     assert (a.split, a.transform, a.param) == ("test", "jpeg", "70")
-    assert a.model == "ViT-L-14" and a.precision == "auto"
+    assert a.model is None and a.backbone == "clip" and a.precision == "auto"
     b = ap.parse_args(["--split", "test", "--chain", "screenshot_repost"])
     assert b.chain == "screenshot_repost" and b.transform == "clean"
     with pytest.raises(SystemExit):

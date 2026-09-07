@@ -5,11 +5,12 @@ Contract (CONTRACTS.md §3): ``data/cache/{split}_{transform}_{param}.npy``
 ``--split --transform --param``; one invocation writes one cache pair.
 
 Pipeline per row: PIL open -> ``transforms.apply`` (skipped for ``clean``)
--> CLIP preprocessing (224 center-crop + CLIP mean/std, pinned in
-``configs/transforms.yaml``) -> frozen ``open_clip`` ViT-L/14 (fp16 on CUDA)
--> L2-normalized embedding (float32 on disk).
+-> backbone preprocessing (224 center-crop + CLIP mean/std, or ImageNet
+mean/std for ``--backbone dinov2``; pinned in ``configs/transforms.yaml``)
+-> frozen backbone (open_clip ViT-L/14 default, timm DINOv2-L/14 backup;
+fp16 on CUDA) -> L2-normalized embedding (float32 on disk).
 
-``torch`` / ``open_clip`` / ``torchvision`` are lazy-imported so ``--help``
+``torch`` / ``open_clip`` / ``timm`` / ``torchvision`` are lazy-imported so ``--help``
 and the pure-helper unit tests run on CPU-only hosts without them.
 """
 
@@ -28,6 +29,35 @@ DEFAULT_PREPROC = REPO_ROOT / "configs" / "transforms.yaml"
 
 MODEL_DEFAULT = "ViT-L-14"
 PRETRAINED_DEFAULT = "openai"
+
+CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
+CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+DINOV2_TIMM_DEFAULT = "vit_large_patch14_dinov2.lvd142m"
+DINOV2_DIM = 1024
+
+
+def resolve_backbone(name: str) -> dict:
+    """Pure backbone spec (no torch import): model ids + norm stats + dim."""
+    if name == "clip":
+        return {
+            "kind": "open_clip",
+            "model": MODEL_DEFAULT,
+            "pretrained": PRETRAINED_DEFAULT,
+            "mean": list(CLIP_MEAN),
+            "std": list(CLIP_STD),
+            "dim": 768,
+        }
+    if name == "dinov2":
+        return {
+            "kind": "timm",
+            "timm_model": DINOV2_TIMM_DEFAULT,
+            "mean": list(IMAGENET_MEAN),
+            "std": list(IMAGENET_STD),
+            "dim": DINOV2_DIM,
+        }
+    raise ValueError(f"unknown backbone {name!r} (want 'clip'|'dinov2)")
 
 
 def parse_param(transform: str, raw: str | None):
@@ -60,43 +90,78 @@ def load_preprocessing_cfg(path: Path = DEFAULT_PREPROC) -> dict:
     return cfg
 
 
-def build_preprocess(cfg: dict):
-    """torchvision CLIP preprocessing: Resize -> CenterCrop -> Norm."""
+def build_preprocess(cfg: dict, backbone: str = "clip"):
+    """torchvision preprocessing: Resize -> CenterCrop -> Norm.
+
+    Norm stats follow the backbone: CLIP mean/std (from transforms.yaml)
+    or ImageNet mean/std for DINOv2. Size/crop stay shared (224).
+    """
     from torchvision import transforms as T
     from torchvision.transforms import InterpolationMode
 
     size = int(cfg["size"])
+    mean, std = list(cfg["mean"]), list(cfg["std"])
+    if backbone == "dinov2":
+        mean, std = list(IMAGENET_MEAN), list(IMAGENET_STD)
+    elif backbone != "clip":
+        raise ValueError(f"unknown backbone {backbone!r}")
     return T.Compose(
         [
             T.Resize(size, interpolation=InterpolationMode.BICUBIC),
             T.CenterCrop(size),
             T.ToTensor(),
-            T.Normalize(mean=list(cfg["mean"]), std=list(cfg["std"])),
+            T.Normalize(mean=mean, std=std),
         ]
     )
 
 
-def load_backbone(model_name: str, pretrained: str, device: str, precision: str):
-    """Frozen open_clip model -> (model, embed_dim)."""
-    import open_clip
+def encode_batch(model, backbone: str, batch):
+    """Backbone forward -> (B, dim) embedding (unnormalized; caller norms)."""
+    if backbone == "clip":
+        return model.encode_image(batch)
+    if backbone == "dinov2":
+        return model.forward_features(batch)[:, 0]
+    raise ValueError(f"unknown backbone {backbone!r}")
+
+
+def load_backbone(backbone: str, model_name: str, pretrained: str, device: str, precision: str):
+    """Frozen backbone model -> (model, embed_dim)."""
     import torch
 
-    model, _, _ = open_clip.create_model_and_transforms(
-        model_name, pretrained=pretrained, device=device
-    )
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad_(False)
-    if device.startswith("cuda") and precision == "fp16":
-        model.half()
-    dim = getattr(getattr(model, "visual", None), "output_dim", None)
-    if dim is None:  # fallback: probe with a dummy batch
-        with torch.no_grad():
-            probe = torch.zeros(1, 3, 224, 224, device=device)
-            if device.startswith("cuda") and precision == "fp16":
-                probe = probe.half()
-            dim = int(model.encode_image(probe).shape[1])
-    return model, int(dim)
+    if backbone == "dinov2":
+        import timm
+
+        name = model_name or DINOV2_TIMM_DEFAULT
+        # Native DINOv2 res is 518; we extract at the shared 224 pipeline
+        # (timm interpolates pos-embed; the DINOv2 paper also evals at 224).
+        model = timm.create_model(name, pretrained=True, num_classes=0, img_size=224)
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad_(False)
+        if device.startswith("cuda") and precision == "fp16":
+            model.half()
+        return model, DINOV2_DIM
+    if backbone == "clip":
+        import open_clip
+
+        name = model_name or MODEL_DEFAULT
+        model, _, _ = open_clip.create_model_and_transforms(
+            name, pretrained=pretrained, device=device
+        )
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad_(False)
+        if device.startswith("cuda") and precision == "fp16":
+            model.half()
+        dim = getattr(getattr(model, "visual", None), "output_dim", None)
+        if dim is None:  # fallback: probe with a dummy batch
+            with torch.no_grad():
+                probe = torch.zeros(1, 3, 224, 224, device=device)
+                if device.startswith("cuda") and precision == "fp16":
+                    probe = probe.half()
+                dim = int(model.encode_image(probe).shape[1])
+        return model, int(dim)
+    raise ValueError(f"unknown backbone {backbone!r} (want 'clip'|'dinov2')")
 
 
 def read_split_rows(manifest: Path, split: str, limit: int = 0) -> list[dict]:
@@ -185,7 +250,9 @@ def extract(args: argparse.Namespace) -> dict:
     from aigc_detect.transforms import apply, apply_chain
 
     torch.manual_seed(args.seed)
-    preproc = build_preprocess(load_preprocessing_cfg(Path(args.preproc)))
+    # Validate backbone early (before slow work); also selects norm stats.
+    resolve_backbone(args.backbone)
+    preproc = build_preprocess(load_preprocessing_cfg(Path(args.preproc)), args.backbone)
     device = args.device
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -193,7 +260,8 @@ def extract(args: argparse.Namespace) -> dict:
     if precision == "auto":
         precision = "fp16" if device.startswith("cuda") else "fp32"
     print(
-        f"[extract] backbone {args.model}/{args.pretrained} device={device} precision={precision}",
+        f"[extract] backbone={args.backbone} {args.model or '(default)'}/{args.pretrained} "
+        f"device={device} precision={precision}",
         flush=True,
     )
 
@@ -240,7 +308,7 @@ def extract(args: argparse.Namespace) -> dict:
         num_workers=args.workers,
         pin_memory=device.startswith("cuda"),
     )
-    model, dim = load_backbone(args.model, args.pretrained, device, precision)
+    model, dim = load_backbone(args.backbone, args.model, args.pretrained, device, precision)
     total_imgs = len(ds)
     feats = np.empty((total_imgs, dim), dtype=np.float32)
     use_amp = device.startswith("cuda") and precision == "fp16"
@@ -274,9 +342,9 @@ def extract(args: argparse.Namespace) -> dict:
             batch = batch.to(device, non_blocking=True)
             if use_amp:
                 with torch.amp.autocast("cuda", dtype=torch.float16):
-                    out = model.encode_image(batch).float()
+                    out = encode_batch(model, args.backbone, batch).float()
             else:
-                out = model.encode_image(batch).float()
+                out = encode_batch(model, args.backbone, batch).float()
             out = out / out.norm(dim=-1, keepdim=True).clamp_min(1e-12)
             t_fwd += time.perf_counter() - t0
             n = out.shape[0]
@@ -312,6 +380,7 @@ def extract(args: argparse.Namespace) -> dict:
         write_index(rows, stem.parent / (stem.name + ".index.csv"))
     total = time.perf_counter() - t_all
     meta = {
+        "backbone": args.backbone,
         "model": args.model,
         "pretrained": args.pretrained,
         "device": device,
@@ -357,8 +426,23 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     ap.add_argument("--preproc", type=Path, default=DEFAULT_PREPROC)
-    ap.add_argument("--model", default=MODEL_DEFAULT)
-    ap.add_argument("--pretrained", default=PRETRAINED_DEFAULT)
+    ap.add_argument(
+        "--backbone",
+        default="clip",
+        choices=["clip", "dinov2"],
+        help="clip=open_clip ViT-L/14 (default); dinov2=timm ViT-L/14 "
+        "(backup backbone B). Use a SEPARATE --cache-dir for dinov2: cache "
+        "filenames are backbone-blind and would collide with CLIP caches.",
+    )
+    ap.add_argument(
+        "--model",
+        default=None,
+        help="override: open_clip model (clip) or timm model "
+        f"(dinov2, default {DINOV2_TIMM_DEFAULT}); empty=default",
+    )
+    ap.add_argument(
+        "--pretrained", default=PRETRAINED_DEFAULT, help="open_clip weights (clip only)"
+    )
     ap.add_argument("--device", default="auto", help="auto|cuda|cpu (+:0 ids ok)")
     ap.add_argument("--precision", default="auto", help="auto|fp16|fp32")
     ap.add_argument("--batch-size", type=int, default=64)

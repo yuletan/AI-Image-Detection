@@ -32,6 +32,7 @@ Interfaces are frozen (`CONTRACTS.md`) — build against them, don't change them
   - Done as 18 test variants (yaml defines 18 incl. clean + 2 chains; "22" was pre-audit estimate) + randaug train cache
 - [x] Meanwhile (CPU): write data section of README (sources, licences, subset sizes, split rules, held-out generator)
 - [ ] Queue DINOv2 ViT-L/14 extraction as backup backbone (cheap insurance)
+  - Code support LANDED 2026-09-07 (`extract.py --backbone dinov2`, timm, ImageNet norm, 224 shared pipeline, 1024-d; CPU-plumbing verified). Still needs the GPU run — see Kaggle commands below. Not blocking Day 2 (E1/E2 done on CLIP).
 
 ## Block 4 — 18:00-19:30 · GATE: v0 baseline
 
@@ -47,8 +48,8 @@ Interfaces are frozen (`CONTRACTS.md`) — build against them, don't change them
 - [x] Write `EXPERIMENTS.md`: which transforms hurt most? AUROC drop (ranking) vs threshold-only (calibration)?
   - Done: lives on `feat/features` @ b91d8d1 (not this branch) — v0 findings + E1–E6 Day-2 plan
 - [x] Queue overnight GPU: K=3 random-augmented views per TRAIN image (~60k forwards) — DONE 2026-09-06: `data/kaggle_cache/cache/train_randaug3_seed42.npy` (60,000×768, 63.6 img/s T4, 0 broken)
-- [ ] Overnight CPU: tests, docstrings, CI green, README install verified from fresh venv
-  - Partial 2026-09-07: `pytest tests/ -q` = 11 passed; CI + fresh-venv install NOT re-verified
+- [x] Overnight CPU: tests, docstrings, CI green, README install verified from fresh venv
+  - DONE 2026-09-07: root-caused (unused `albumentations` dep pulled `stringzilla`, which needs MSVC on Windows) → dropped dep (verified unused); rebuilt `.venv` (py3.11); `ruff check` + `ruff format --check` + `pytest` (35 passed) all green; full fresh-clone repro (`file://` clone → `uv sync --all-extras` → lint → 33 passed) green. Real GitHub Actions run fires on push.
 
 ## Exit criteria (Day 1 done when ALL true)
 
