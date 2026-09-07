@@ -106,3 +106,32 @@ point for the Day-3 trade-off: backbones, like aug-mix, trade
 in-distribution strict-operating-point power for unseen-generator
 generalisation. Keep as insurance; no E1/E2 repeat on DINOv2 unless
 CLIP held-out regresses further.
+
+## Day-2 results: E4 (TTA+abstain) + E5 (threshold drift + temp scaling)
+
+CPU-only on cached CLIP features (`scripts/eval_e4_e5.py`, 17 s laptop;
+`results/e4_tta/`, `results/e5_threshold/`, `results/{e4,e5}_summary.json`).
+Heads: v1_mlp (full 25/75 mix) vs v1b_mlp (half 50/50 mix), seeds 0/1/2.
+
+E4 — TTA-mean over the 5 pinned views (clean, jpeg70, resize0.5, crop80,
+flip) on test-clean (n=4000): AUROC delta **+0.0002–0.0004** (v1_mlp),
+**−0.0002–−0.0004** (v1b_mlp). Ranking is saturated — TTA-mean is not
+worth 5× inference. Abstain band works: flag top-10% by cross-view std
+→ accuracy-of-rest 0.974 → **0.994** (v1_mlp; 0.992 v1b), top-20% →
+0.9975. Flagged images carry ~0.2 mean std vs ~0.0001 for the rest —
+uncertainty cleanly separates the errors. Ship abstain, skip TTA-mean.
+
+E5 — threshold frozen at 1% FPR on clean val, per-variant FPR drift:
+- v1_mlp threshold is **stable**: FPR 0.008–0.017 on all 18 variants
+  (clean 0.010). Full-mix aug training bought threshold stability.
+- v1b_mlp **drifts 2–4.75×** where it matters: resize 0.25× 0.0475,
+  `filter_app` 0.0300, noise 0.10 0.0275, colorjitter 0.0225, blur σ2
+  0.0212, JPEG 30/50 ~0.019–0.020. This is the real moderation failure
+  mode (AUROC hides it), and it decides the mix: v1_mlp over v1b_mlp
+  for anything deployed at a fixed threshold. (centercrop / screenshot
+  chains deflate FPR — conservative direction, no action.)
+- Calibration: MLP heads are overconfident (thr ≈ 0.994–1.000,
+  T\* = 2.5–3.0); temperature scaling halves val ECE (~0.02–0.03 →
+  ~0.01). Scaling is monotonic — ranking/FPR-drift numbers are
+  unaffected, only probabilities move. Apply T\* before any abstain
+  band or human-review queue.
