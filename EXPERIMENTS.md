@@ -32,6 +32,53 @@ points — TPR@1%FPR falls 0.834 (clean) → 0.696 (noise 0.10). Calibration
 
 ## Overnight queue (in order)
 
-1. `train_randaug3_seed42` extraction (~60k forwards, ~15 min).
-2. v1 head training (CPU seconds after caches land).
+1. `train_randaug3_seed42` extraction (~60k forwards, ~15 min). ✅ DONE
+2. v1 head training (CPU seconds after caches land). ✅ DONE 2026-09-07
+   (`scripts/train_v1.py`; linear ~2 s/seed, sklearn-MLP ~2 min/seed on CPU).
 3. 3-seed runs of the chosen config if E1–E2 conclude before morning.
+
+## Day-2 results: E1 + E2 (v1 = clean + aug, 3 seeds; commit `feat/data`)
+
+2×2: mix {full 25/75 clean/randaug3, half 50/50 clean/first-view} ×
+head {linear probe (C=1.0), MLP 512-relu (sklearn adam lr=1e-3, 30 epochs,
+standardized; NO dropout/AdamW in sklearn — L2 alpha=1e-4 substitutes)}.
+Eval: val clean + 18 test variants + held-out DDIM (fake-only, acc@0.5).
+Full tables: `results/{v1,v1b}_{linear,mlp}/seed{0,1,2}/`,
+`results/{v1,v1b}_summary.json` (mean±std; local, gitignored).
+
+| config | mix | mean test AUROC | mean test TPR@1%FPR | held-out DDIM acc |
+|---|---|---|---|---|
+| v0 linear (ref) | clean only | 0.9918 | 0.8029 | **0.909** |
+| v1b_linear | 50/50 | 0.9920 | 0.8090 | **0.909** |
+| v1b_mlp | 50/50 | 0.9933 | 0.8555 | 0.839–0.854 |
+| v1_linear | 25/75 | 0.9933 | 0.8357 | 0.762 |
+| v1_mlp | 25/75 | **0.9957** | **0.8847** | 0.707–0.798 |
+
+Findings:
+- E1 expectation was half-right: no clean cost anywhere (clean AUROC
+  0.9932 → 0.9942–0.9965 — aug training HELPED clean). Robustness gains
+  are real but concentrate at TPR@1%FPR: v1_mlp noise 0.10
+  0.696 → **0.849** (+15pt), blur σ2 0.775 → 0.850, resize 0.25×
+  0.779 → 0.853.
+- **Held-out trade-off (new):** aug fraction trades unseen-generator
+  generalisation for in-distribution robustness, monotonically:
+  0.909 (clean, 50/50-linear) → ~0.847 (50/50-MLP) → 0.762 (full-linear)
+  → ~0.76 (full-MLP). Aug-as-training erodes the frozen-CLIP
+  generalisation story that motivated the architecture.
+- E2 verdict: **MLP > linear at fixed mix** (v1_mlp beats v1_linear on all
+  18 variants). BUT v1b_mlp REGRESSES vs v0 on noise (0.9855 vs 0.9874)
+  and resize 0.25× (0.9829 vs 0.9898) — high-capacity head + 30 epochs to
+  near-zero loss overfits the small-mix cache. No single winner:
+  robustness (v1_mlp) vs generalisation (v1b_linear) is now the explicit
+  trade-off for the Day-3 Trade-offs section.
+- Caveat: linear seeds are bit-identical (lbfgs deterministic, std=0.0000);
+  seed-spread is meaningful only for the MLP (±0.0000–0.0004 AUROC —
+  stable).
+
+Implications:
+- E3 bar is now v1_mlp (mean 0.9957 / 0.8847) AND held-out ≥ ~0.85.
+  LoRA must beat BOTH; given aug already costs held-out, LoRA + online
+  aug is likely to regress DDIM further — skip unless it clearly wins.
+- Next cheapest wins (no GPU): E4 TTA + E5 threshold/FPR-drift on the
+  v1b_mlp and v1_mlp heads; E6 LOGO to test whether generator diversity
+  (not mix) recovers held-out.
