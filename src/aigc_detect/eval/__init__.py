@@ -58,16 +58,18 @@ def tpr_at_fpr(y_true: list[int], y_score: list[float], fpr: float = 0.01) -> fl
     return 1.0
 
 
-def expected_calibration_error(y_true: list[int], y_score: list[float],
-                               n_bins: int = 15) -> float:
+def expected_calibration_error(y_true: list[int], y_score: list[float], n_bins: int = 15) -> float:
     """ECE with uniform-width bins on [0,1]."""
     if not y_score:
         return float("nan")
     edges = [i / n_bins for i in range(n_bins + 1)]
     ece, n = 0.0, len(y_score)
     for b in range(n_bins):
-        idx = [i for i, s in enumerate(y_score)
-               if (edges[b] < s <= edges[b + 1] if b else s <= edges[b + 1])]
+        idx = [
+            i
+            for i, s in enumerate(y_score)
+            if (edges[b] < s <= edges[b + 1] if b else s <= edges[b + 1])
+        ]
         if not idx:
             continue
         acc = sum(y_true[i] for i in idx) / len(idx)

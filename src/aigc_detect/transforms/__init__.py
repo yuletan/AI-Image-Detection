@@ -1,7 +1,9 @@
-"""Transform registry — Day 0 stub implementing the official table exactly.
+"""Transform registry implementing the official table exactly (Pillow/numpy).
 
-Day 1 A2 fleshes this out with albumentations + SRM residual + chains.
 Contract: apply(img, name, param) -> PIL.Image (see CONTRACTS.md).
+No albumentations dependency: every op is Pillow/numpy so `uv sync` works
+on hosts without a C++ build toolchain. (Day-2 SRM residual branch will
+use torch/numpy instead.)
 """
 
 from __future__ import annotations

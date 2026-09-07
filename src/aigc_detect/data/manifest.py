@@ -43,12 +43,21 @@ SPLIT_ORDER = ("train", "val", "test", "heldout")
 IMG_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 QUOTAS: dict[str, dict[str, int]] = {
-    "train": {"celebahq": 4000, "ffhq": 4000, "sid_real": 2000,
-              "sid_synth": 5000, "sid_tampered": 5000},
-    "val": {"celebahq": 400, "ffhq": 400, "sid_real": 200,
-            "sid_synth": 500, "sid_tampered": 500},
-    "test": {"celebahq": 800, "ffhq": 800, "sid_real": 400,
-             "sid_synth": 1000, "sid_tampered": 1000},
+    "train": {
+        "celebahq": 4000,
+        "ffhq": 4000,
+        "sid_real": 2000,
+        "sid_synth": 5000,
+        "sid_tampered": 5000,
+    },
+    "val": {"celebahq": 400, "ffhq": 400, "sid_real": 200, "sid_synth": 500, "sid_tampered": 500},
+    "test": {
+        "celebahq": 800,
+        "ffhq": 800,
+        "sid_real": 400,
+        "sid_synth": 1000,
+        "sid_tampered": 1000,
+    },
     "heldout": {"ddim": 1000},
 }
 
@@ -125,8 +134,7 @@ def scan_wildfake(root: Path = WILDFAKE_ROOT, verbose: bool = True) -> Pools:
             gen = gendir.name.lower()
             _log(f"[scan] {sub}/{gendir.name} ...", verbose=verbose)
             files = sorted(
-                p for p in gendir.rglob("*")
-                if p.is_file() and p.suffix.lower() in IMG_SUFFIXES
+                p for p in gendir.rglob("*") if p.is_file() and p.suffix.lower() in IMG_SUFFIXES
             )
             _log(f"[scan] {sub}/{gendir.name}: {len(files)} files", verbose=verbose)
             pools.setdefault(gen, []).extend((p, label) for p in files)
@@ -135,8 +143,13 @@ def scan_wildfake(root: Path = WILDFAKE_ROOT, verbose: bool = True) -> Pools:
     return pools
 
 
-def stream_sid(dest: Path, quotas: dict[str, int], seed: int = 42,
-               max_examples: int = 60000, verbose: bool = True) -> Pools:
+def stream_sid(
+    dest: Path,
+    quotas: dict[str, int],
+    seed: int = 42,
+    max_examples: int = 60000,
+    verbose: bool = True,
+) -> Pools:
     """Stream saberzl/SID_Set, save needed images as JPEG under dest/.
 
     Returns {generator: [(path, label)]}. Reuses files already on disk
@@ -162,8 +175,9 @@ def stream_sid(dest: Path, quotas: dict[str, int], seed: int = 42,
     _log(f"  sid reuse: {reused} on disk, still need {need}", verbose=verbose)
     if all(v <= 0 for v in need.values()):
         return pools
-    _log(f"  sid streaming {sum(need.values())} images (this is network-bound) ...",
-         verbose=verbose)
+    _log(
+        f"  sid streaming {sum(need.values())} images (this is network-bound) ...", verbose=verbose
+    )
     ds = load_dataset("saberzl/SID_Set", streaming=True, split="train")
     have = {p for lst in pools.values() for p, _ in lst}
     streamed = saved = 0  # intake follows stream order (deterministic per revision)
@@ -175,8 +189,11 @@ def stream_sid(dest: Path, quotas: dict[str, int], seed: int = 42,
         streamed += 1
         if verbose and streamed % 5000 == 0:
             got = {g: len(pools[g]) for g in quotas}
-            _log(f"  sid: streamed={streamed} saved_new={saved} kept={got} "
-                 f"({time.perf_counter() - t0:.0f}s)", verbose=verbose)
+            _log(
+                f"  sid: streamed={streamed} saved_new={saved} kept={got} "
+                f"({time.perf_counter() - t0:.0f}s)",
+                verbose=verbose,
+            )
         try:
             lab, gen = sid_label_and_generator(ex["img_id"], ex["label"])
         except ValueError:
@@ -198,14 +215,20 @@ def stream_sid(dest: Path, quotas: dict[str, int], seed: int = 42,
     short = {g: quotas[g] - len(pools[g]) for g in quotas if len(pools[g]) < quotas[g]}
     if short:
         raise RuntimeError(f"SID stream shortfall after {streamed} examples: {short}")
-    _log(f"  sid done: streamed={streamed} saved_new={saved} ({time.perf_counter() - t0:.1f}s)",
-         verbose=verbose)
+    _log(
+        f"  sid done: streamed={streamed} saved_new={saved} ({time.perf_counter() - t0:.1f}s)",
+        verbose=verbose,
+    )
     return pools
 
 
-def select_split(pools: dict[str, list[tuple[Path, int]]],
-                 quotas: dict[str, dict[str, int]], seed: int = 42,
-                 rel_to: Path | None = None, verbose: bool = True) -> tuple[list[dict], int]:
+def select_split(
+    pools: dict[str, list[tuple[Path, int]]],
+    quotas: dict[str, dict[str, int]],
+    seed: int = 42,
+    rel_to: Path | None = None,
+    verbose: bool = True,
+) -> tuple[list[dict], int]:
     """pHash-dedupe each pool, then fill per-split quotas (seeded, deterministic).
 
     pools: {generator: [(path, label)]}. Phase 1 collects uniques per
@@ -240,13 +263,14 @@ def select_split(pools: dict[str, list[tuple[Path, int]]],
             seen.add(h)
             sel.append((path, label))
             if verbose and len(pool) > _REPORT_EVERY and checked % _REPORT_EVERY == 0:
-                _log(f"[dedupe] {gen}: {checked}/{len(pool)} scanned, "
-                     f"kept={len(sel)} dupes={removed} ({time.perf_counter() - t0:.0f}s)",
-                     verbose=verbose)
+                _log(
+                    f"[dedupe] {gen}: {checked}/{len(pool)} scanned, "
+                    f"kept={len(sel)} dupes={removed} ({time.perf_counter() - t0:.0f}s)",
+                    verbose=verbose,
+                )
         if len(sel) < need[gen]:
             raise RuntimeError(f"quota shortfall: gen={gen} got={len(sel)}/{need[gen]}")
-        _log(f"[dedupe] {gen}: kept={len(sel)} ({time.perf_counter() - t0:.1f}s)",
-             verbose=verbose)
+        _log(f"[dedupe] {gen}: kept={len(sel)} ({time.perf_counter() - t0:.1f}s)", verbose=verbose)
         picked[gen] = sel
     rows: list[dict] = []
     for split in SPLIT_ORDER:
@@ -255,22 +279,27 @@ def select_split(pools: dict[str, list[tuple[Path, int]]],
             chunk, picked[gen] = picked[gen][:n], picked[gen][n:]
             for path, label in chunk:
                 p = Path(path)
-                group.append({
-                    "image_path": p.relative_to(rel_to).as_posix()
-                    if rel_to else p.as_posix(),
-                    "label": int(label),
-                    "source": "sid_set" if gen in SID_GENERATORS else "wildfake",
-                    "generator": gen,
-                    "split": split,
-                })
+                group.append(
+                    {
+                        "image_path": p.relative_to(rel_to).as_posix() if rel_to else p.as_posix(),
+                        "label": int(label),
+                        "source": "sid_set" if gen in SID_GENERATORS else "wildfake",
+                        "generator": gen,
+                        "split": split,
+                    }
+                )
         rng.shuffle(group)
         rows.extend(group)
     return rows, removed
 
 
-def check_demo_leak(rows: list[dict], demo_dir: Path = DEMO_DIR,
-                    root: Path = REPO_ROOT, threshold: int = 5,
-                    verbose: bool = True) -> dict:
+def check_demo_leak(
+    rows: list[dict],
+    demo_dir: Path = DEMO_DIR,
+    root: Path = REPO_ROOT,
+    threshold: int = 5,
+    verbose: bool = True,
+) -> dict:
     """Zero-overlap check vs quarantined demo set: exact sha256 OR pHash<=threshold.
 
     Returns {n_demo, n_checked, exact_hits, near_hits}. Raises on any hit.
@@ -279,9 +308,11 @@ def check_demo_leak(rows: list[dict], demo_dir: Path = DEMO_DIR,
     import imagehash
 
     t0 = time.perf_counter()
-    demo_files = sorted(
-        p for p in demo_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in IMG_SUFFIXES) if demo_dir.is_dir() else []
+    demo_files = (
+        sorted(p for p in demo_dir.rglob("*") if p.is_file() and p.suffix.lower() in IMG_SUFFIXES)
+        if demo_dir.is_dir()
+        else []
+    )
     _log(f"[leak] hashing {len(demo_files)} demo files ...", verbose=verbose)
     demo_exact = {sha256_of(p) for p in demo_files}
     demo_ph = [imagehash.hex_to_hash(phash_of(p)) for p in demo_files]
@@ -296,14 +327,23 @@ def check_demo_leak(rows: list[dict], demo_dir: Path = DEMO_DIR,
         if any(h - d <= threshold for d in demo_ph):
             near += 1
         if verbose and len(rows) > _REPORT_EVERY and i % _REPORT_EVERY == 0:
-            _log(f"[leak] {i}/{len(rows)} checked ({time.perf_counter() - t0:.0f}s)",
-                 verbose=verbose)
-    result = {"n_demo": len(demo_files), "n_checked": len(rows),
-              "exact_hits": exact, "near_hits": near, "threshold": threshold}
+            _log(
+                f"[leak] {i}/{len(rows)} checked ({time.perf_counter() - t0:.0f}s)", verbose=verbose
+            )
+    result = {
+        "n_demo": len(demo_files),
+        "n_checked": len(rows),
+        "exact_hits": exact,
+        "near_hits": near,
+        "threshold": threshold,
+    }
     if exact or near:
         raise RuntimeError(f"DEMO LEAK: {result}")
-    _log(f"[leak] clean: {len(rows)} rows vs {len(demo_files)} demo "
-         f"({time.perf_counter() - t0:.1f}s)", verbose=verbose)
+    _log(
+        f"[leak] clean: {len(rows)} rows vs {len(demo_files)} demo "
+        f"({time.perf_counter() - t0:.1f}s)",
+        verbose=verbose,
+    )
     return result
 
 
@@ -328,9 +368,14 @@ def scale_quotas(quotas: dict[str, dict[str, int]], limit: int) -> dict[str, dic
     return {s: {g: max(1, round(n * f)) for g, n in q.items()} for s, q in quotas.items()}
 
 
-def build_manifest(seed: int = 42, out: Path = DEFAULT_OUT, limit: int = 0,
-                   sid_max: int = 60000, threshold: int = 5,
-                   verbose: bool = True) -> dict:
+def build_manifest(
+    seed: int = 42,
+    out: Path = DEFAULT_OUT,
+    limit: int = 0,
+    sid_max: int = 60000,
+    threshold: int = 5,
+    verbose: bool = True,
+) -> dict:
     t_all = time.perf_counter()
     quotas = scale_quotas(QUOTAS, limit)
     need = Counter()
@@ -344,8 +389,7 @@ def build_manifest(seed: int = 42, out: Path = DEFAULT_OUT, limit: int = 0,
         # +~17% headroom so true pHash dupes can't cause a quota shortfall
         stream_q = {g: q + (q // 6) + 5 for g, q in sid_q.items()}
         _log(f"[2/5] streaming SID_Set for {sid_q} (fetch {stream_q}) ...", verbose=verbose)
-        for g, lst in stream_sid(SID_DIR, stream_q, seed, sid_max,
-                                verbose=verbose).items():
+        for g, lst in stream_sid(SID_DIR, stream_q, seed, sid_max, verbose=verbose).items():
             pools.setdefault(g, []).extend(lst)
     else:
         _log("[2/5] SID skipped (no sid quota)", verbose=verbose)
@@ -366,12 +410,19 @@ def build_manifest(seed: int = 42, out: Path = DEFAULT_OUT, limit: int = 0,
     leak = check_demo_leak(rows, DEMO_DIR, REPO_ROOT, threshold, verbose=verbose)
     counts = Counter((r["split"], r["generator"]) for r in rows)
     print("split/generator rows:")
-    for (s, g) in sorted(counts, key=lambda t: (SPLIT_ORDER.index(t[0]), t[1])):
+    for s, g in sorted(counts, key=lambda t: (SPLIT_ORDER.index(t[0]), t[1])):
         print(f"  {s:<8} {g:<12} {counts[(s, g)]}")
-    print(f"total={len(rows)} dedupe_removed={removed} leak={leak} out={out} "
-          f"({time.perf_counter() - t_all:.1f}s)")
-    return {"rows": len(rows), "removed": removed, "leak": leak,
-            "out": str(out), "heldout": sorted(held)}
+    print(
+        f"total={len(rows)} dedupe_removed={removed} leak={leak} out={out} "
+        f"({time.perf_counter() - t_all:.1f}s)"
+    )
+    return {
+        "rows": len(rows),
+        "removed": removed,
+        "leak": leak,
+        "out": str(out),
+        "heldout": sorted(held),
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -383,8 +434,14 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--threshold", type=int, default=5, help="pHash hamming threshold")
     ap.add_argument("--quiet", action="store_true", help="suppress progress lines")
     a = ap.parse_args(argv)
-    build_manifest(seed=a.seed, out=a.out, limit=a.limit, sid_max=a.sid_max,
-                   threshold=a.threshold, verbose=not a.quiet)
+    build_manifest(
+        seed=a.seed,
+        out=a.out,
+        limit=a.limit,
+        sid_max=a.sid_max,
+        threshold=a.threshold,
+        verbose=not a.quiet,
+    )
 
 
 if __name__ == "__main__":

@@ -18,8 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def _rows_csv(path: Path, rows: list[dict]) -> Path:
     with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["image_path", "label", "source",
-                                          "generator", "split"])
+        w = csv.DictWriter(f, fieldnames=["image_path", "label", "source", "generator", "split"])
         w.writeheader()
         w.writerows(rows)
     return path
@@ -59,18 +58,29 @@ def test_build_preprocess_shape():
 
     from aigc_detect.features.extract import build_preprocess
 
-    t = build_preprocess({"size": 224, "center_crop": True,
-                          "mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]})
+    t = build_preprocess(
+        {"size": 224, "center_crop": True, "mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]}
+    )
     out = t(Image.new("RGB", (300, 200), (10, 20, 30)))
     assert isinstance(out, torch.Tensor) and out.shape == (3, 224, 224)
 
 
 def test_read_split_rows_and_limit(tmp_path: Path):
     rows = [
-        {"image_path": "a.jpg", "label": "0", "source": "wildfake",
-         "generator": "ffhq", "split": "train"},
-        {"image_path": "b.jpg", "label": "1", "source": "wildfake",
-         "generator": "ddim", "split": "test"},
+        {
+            "image_path": "a.jpg",
+            "label": "0",
+            "source": "wildfake",
+            "generator": "ffhq",
+            "split": "train",
+        },
+        {
+            "image_path": "b.jpg",
+            "label": "1",
+            "source": "wildfake",
+            "generator": "ddim",
+            "split": "test",
+        },
     ]
     mp = _rows_csv(tmp_path / "m.csv", rows)
     got = read_split_rows(mp, "train")
@@ -81,8 +91,7 @@ def test_read_split_rows_and_limit(tmp_path: Path):
 
 
 def test_write_index_roundtrip(tmp_path: Path):
-    rows = [{"image_path": "a.jpg", "label": 0, "source": "s",
-             "generator": "g", "split": "train"}]
+    rows = [{"image_path": "a.jpg", "label": 0, "source": "s", "generator": "g", "split": "train"}]
     out = tmp_path / "x.index.csv"
     write_index(rows, out)
     with out.open(encoding="utf-8") as f:
@@ -118,9 +127,17 @@ def test_sample_aug_views_deterministic_and_mixed():
 
 
 def test_write_index_extra_cols(tmp_path: Path):
-    rows = [{"image_path": "a.jpg", "label": 1, "source": "s",
-             "generator": "g", "split": "train",
-             "transform": "jpeg", "param": "70"}]
+    rows = [
+        {
+            "image_path": "a.jpg",
+            "label": 1,
+            "source": "s",
+            "generator": "g",
+            "split": "train",
+            "transform": "jpeg",
+            "param": "70",
+        }
+    ]
     out = tmp_path / "r.index.csv"
     write_index(rows, out, extra=("transform", "param"))
     with out.open(encoding="utf-8") as f:

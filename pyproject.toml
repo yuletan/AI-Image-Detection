@@ -13,7 +13,6 @@ dependencies = [
   "timm>=0.9",
   "peft>=0.8",
   "Pillow>=10.0",
-  "albumentations>=1.4",
   "scikit-learn>=1.4",
   "pandas>=2.0",
   "matplotlib>=3.8",

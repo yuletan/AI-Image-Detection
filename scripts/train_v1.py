@@ -58,16 +58,31 @@ def eval_all(model_proba, cache_dir: Path, thr: float = THR) -> list[dict]:
     # val clean
     vnpy = cache_dir / "val_clean_None.npy"
     X, y = load_cache(vnpy, vnpy.parent / (vnpy.name + ".index.csv"))
-    rows.append({"split": "val", "transform": "clean", "param": None,
-                 **summarize(y, model_proba(X), thr=thr)})
+    rows.append(
+        {
+            "split": "val",
+            "transform": "clean",
+            "param": None,
+            **summarize(y, model_proba(X), thr=thr),
+        }
+    )
     for npy in sorted(cache_dir.glob("test_*.npy")):
         transform, param = parse_cache_stem(npy.stem, "test")
         X, y = load_cache(npy, npy.parent / (npy.name + ".index.csv"))
-        rows.append({"split": "test", "transform": transform, "param": param,
-                     **summarize(y, model_proba(X), thr=thr)})
-        print(f"[eval] {transform}={param} auroc={rows[-1]['auroc']:.4f} "
-              f"acc={rows[-1]['acc']:.4f} tpr@1fpr={rows[-1]['tpr_at_1fpr']:.4f} "
-              f"ece={rows[-1]['ece']:.4f} n={rows[-1]['n']}", flush=True)
+        rows.append(
+            {
+                "split": "test",
+                "transform": transform,
+                "param": param,
+                **summarize(y, model_proba(X), thr=thr),
+            }
+        )
+        print(
+            f"[eval] {transform}={param} auroc={rows[-1]['auroc']:.4f} "
+            f"acc={rows[-1]['acc']:.4f} tpr@1fpr={rows[-1]['tpr_at_1fpr']:.4f} "
+            f"ece={rows[-1]['ece']:.4f} n={rows[-1]['n']}",
+            flush=True,
+        )
     return rows
 
 
@@ -85,9 +100,16 @@ def train_mlp(X, y, seed: int):
 
     scaler = StandardScaler().fit(X)
     Xs = scaler.transform(X)
-    mlp = MLPClassifier(hidden_layer_sizes=(512,), activation="relu",
-                        solver="adam", alpha=1e-4, learning_rate_init=1e-3,
-                        max_iter=30, random_state=seed, verbose=False)
+    mlp = MLPClassifier(
+        hidden_layer_sizes=(512,),
+        activation="relu",
+        solver="adam",
+        alpha=1e-4,
+        learning_rate_init=1e-3,
+        max_iter=30,
+        random_state=seed,
+        verbose=False,
+    )
     mlp.fit(Xs, y)
     return mlp, scaler
 
@@ -98,11 +120,14 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
     ap.add_argument("--skip-mlp", action="store_true")
-    ap.add_argument("--skip-v0", action="store_true",
-                    help="skip the v0 clean-only repro (already recorded)")
-    ap.add_argument("--half-mix", action="store_true",
-                    help="50/50 mix: clean + first aug view per image "
-                         "(outputs to results/v1b_*)")
+    ap.add_argument(
+        "--skip-v0", action="store_true", help="skip the v0 clean-only repro (already recorded)"
+    )
+    ap.add_argument(
+        "--half-mix",
+        action="store_true",
+        help="50/50 mix: clean + first aug view per image (outputs to results/v1b_*)",
+    )
     args = ap.parse_args()
 
     import joblib
@@ -113,8 +138,7 @@ def main() -> None:
 
     cd = args.cache_dir
     clean = (cd / "train_clean_None.npy", cd / "train_clean_None.npy.index.csv")
-    aug = (cd / "train_randaug3_seed42.npy",
-           cd / "train_randaug3_seed42.npy.index.csv")
+    aug = (cd / "train_randaug3_seed42.npy", cd / "train_randaug3_seed42.npy.index.csv")
     t0 = time.perf_counter()
     X_clean, y_clean = load_concat([clean])
     if args.half_mix:
@@ -136,28 +160,37 @@ def main() -> None:
             rows = list(csv.DictReader(f))
         y_aug = [int(rows[i]["label"]) for i in keep]
         tag = "v1b"
-        print(f"[v1b] half-mix: {len(keep)} first-views kept "
-              f"({len(seen)} unique images)", flush=True)
+        print(
+            f"[v1b] half-mix: {len(keep)} first-views kept ({len(seen)} unique images)", flush=True
+        )
     else:
         X_aug, y_aug = load_concat([clean, aug])
         tag = "v1"
-    print(f"[v1] clean {X_clean.shape} pos={sum(y_clean)} | "
-          f"clean+aug {X_aug.shape} pos={sum(y_aug)} "
-          f"({time.perf_counter() - t0:.1f}s load)", flush=True)
+    print(
+        f"[v1] clean {X_clean.shape} pos={sum(y_clean)} | "
+        f"clean+aug {X_aug.shape} pos={sum(y_aug)} "
+        f"({time.perf_counter() - t0:.1f}s load)",
+        flush=True,
+    )
 
-    summary: dict = {"seeds": args.seeds, "variants": {},
-                     "mix": "half (50/50 clean/first-view)" if args.half_mix
-                     else "full (25/75 clean/randaug3)"}
+    summary: dict = {
+        "seeds": args.seeds,
+        "variants": {},
+        "mix": "half (50/50 clean/first-view)" if args.half_mix else "full (25/75 clean/randaug3)",
+    }
 
     lin_name, mlp_name = f"{tag}_linear", f"{tag}_mlp"
-    train_desc = ("clean+first-randaug-view" if args.half_mix
-                  else "clean+randaug3_seed42")
+    train_desc = "clean+first-randaug-view" if args.half_mix else "clean+randaug3_seed42"
 
     # v0 sanity: linear on clean-only, seed 0
     if not args.skip_v0:
         clf = train_linear(X_clean, y_clean, seed=0)
-        probe = LinearProbe(clf.coef_.ravel(), float(clf.intercept_[0]), thr=THR,
-                            meta={"config": "v0_repro_clean_only", "seed": 0})
+        probe = LinearProbe(
+            clf.coef_.ravel(),
+            float(clf.intercept_[0]),
+            thr=THR,
+            meta={"config": "v0_repro_clean_only", "seed": 0},
+        )
         out = args.out / "v0_repro" / "seed0"
         probe.save(out / "probe.npz")
         rows = eval_all(probe.predict_proba, cd)
@@ -170,19 +203,22 @@ def main() -> None:
         for seed in args.seeds:
             t1 = time.perf_counter()
             clf = trainer(X_aug, y_aug, seed)
-            probe = LinearProbe(clf.coef_.ravel(), float(clf.intercept_[0]),
-                                thr=THR,
-                                meta={"config": name, "seed": seed,
-                                      "train_rows": len(y_aug),
-                                      "train": train_desc})
+            probe = LinearProbe(
+                clf.coef_.ravel(),
+                float(clf.intercept_[0]),
+                thr=THR,
+                meta={"config": name, "seed": seed, "train_rows": len(y_aug), "train": train_desc},
+            )
             out = args.out / name / f"seed{seed}"
             probe.save(out / "probe.npz")
             rows = eval_all(probe.predict_proba, cd)
-            (out / "results.json").write_text(json.dumps(rows, indent=2),
-                                              encoding="utf-8")
+            (out / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
             write_markdown(rows, out / "results.md")
-            print(f"[{name}] seed={seed} val={rows[0]['auroc']:.4f} "
-                  f"({time.perf_counter() - t1:.1f}s)", flush=True)
+            print(
+                f"[{name}] seed={seed} val={rows[0]['auroc']:.4f} "
+                f"({time.perf_counter() - t1:.1f}s)",
+                flush=True,
+            )
 
     if not args.skip_mlp:
         for seed in args.seeds:
@@ -192,26 +228,34 @@ def main() -> None:
             out.mkdir(parents=True, exist_ok=True)
             joblib.dump(mlp, out / "mlp.joblib")
             joblib.dump(scaler, out / "scaler.joblib")
-            meta = {"config": mlp_name, "seed": seed, "train_rows": len(y_aug),
-                    "train": train_desc,
-                    "hidden": [512], "dropout_spec": 0.2,
-                    "dropout_actual": "n/a (sklearn CPU) -> L2 alpha=1e-4",
-                    "optimizer": "adam lr=1e-3 (AdamW unavailable in sklearn)",
-                    "epochs": 30, "standardized": True}
-            (out / "meta.json").write_text(json.dumps(meta, indent=2),
-                                           encoding="utf-8")
+            meta = {
+                "config": mlp_name,
+                "seed": seed,
+                "train_rows": len(y_aug),
+                "train": train_desc,
+                "hidden": [512],
+                "dropout_spec": 0.2,
+                "dropout_actual": "n/a (sklearn CPU) -> L2 alpha=1e-4",
+                "optimizer": "adam lr=1e-3 (AdamW unavailable in sklearn)",
+                "epochs": 30,
+                "standardized": True,
+            }
+            (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
             def proba(X, _mlp=mlp, _sc=scaler):
-                return _mlp.predict_proba(_sc.transform(
-                    np.asarray(X, dtype=np.float64)))[:, 1].tolist()
+                return _mlp.predict_proba(_sc.transform(np.asarray(X, dtype=np.float64)))[
+                    :, 1
+                ].tolist()
 
             rows = eval_all(proba, cd)
-            (out / "results.json").write_text(json.dumps(rows, indent=2),
-                                              encoding="utf-8")
+            (out / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
             write_markdown(rows, out / "results.md")
-            print(f"[v1_mlp] seed={seed} val={rows[0]['auroc']:.4f} "
-                  f"loss={mlp.loss_:.4f} iters={mlp.n_iter_} "
-                  f"({time.perf_counter() - t1:.1f}s)", flush=True)
+            print(
+                f"[v1_mlp] seed={seed} val={rows[0]['auroc']:.4f} "
+                f"loss={mlp.loss_:.4f} iters={mlp.n_iter_} "
+                f"({time.perf_counter() - t1:.1f}s)",
+                flush=True,
+            )
 
     # mean±std over seeds per (split, transform, param), per config
     for config in [lin_name] + ([] if args.skip_mlp else [mlp_name]):
@@ -221,12 +265,17 @@ def main() -> None:
         for i, r0 in enumerate(base):
             accs = {m: [] for m in ("auroc", "acc", "tpr_at_1fpr", "ece")}
             for seed in args.seeds:
-                r = json.loads((args.out / config / f"seed{seed}" / "results.json")
-                               .read_text(encoding="utf-8"))[i]
+                r = json.loads(
+                    (args.out / config / f"seed{seed}" / "results.json").read_text(encoding="utf-8")
+                )[i]
                 for m in accs:
                     accs[m].append(r[m])
-            entry = {"split": r0["split"], "transform": r0["transform"],
-                     "param": r0["param"], "n": r0["n"]}
+            entry = {
+                "split": r0["split"],
+                "transform": r0["transform"],
+                "param": r0["param"],
+                "n": r0["n"],
+            }
             for m, vs in accs.items():
                 entry[m + "_mean"] = float(np.mean(vs))
                 entry[m + "_std"] = float(np.std(vs))
@@ -234,8 +283,7 @@ def main() -> None:
         summary["variants"][config] = agg
     summary_path = args.out / f"{tag}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"[{tag}] done in {time.perf_counter() - t0:.1f}s -> {summary_path}",
-          flush=True)
+    print(f"[{tag}] done in {time.perf_counter() - t0:.1f}s -> {summary_path}", flush=True)
 
 
 if __name__ == "__main__":

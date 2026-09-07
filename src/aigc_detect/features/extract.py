@@ -66,12 +66,14 @@ def build_preprocess(cfg: dict):
     from torchvision.transforms import InterpolationMode
 
     size = int(cfg["size"])
-    return T.Compose([
-        T.Resize(size, interpolation=InterpolationMode.BICUBIC),
-        T.CenterCrop(size),
-        T.ToTensor(),
-        T.Normalize(mean=list(cfg["mean"]), std=list(cfg["std"])),
-    ])
+    return T.Compose(
+        [
+            T.Resize(size, interpolation=InterpolationMode.BICUBIC),
+            T.CenterCrop(size),
+            T.ToTensor(),
+            T.Normalize(mean=list(cfg["mean"]), std=list(cfg["std"])),
+        ]
+    )
 
 
 def load_backbone(model_name: str, pretrained: str, device: str, precision: str):
@@ -137,8 +139,7 @@ def sample_aug_views(k: int, seed: int) -> list[dict]:
     views = []
     for _ in range(k):
         if chains and rng.random() < 0.15:
-            views.append({"transform": rng.choice(chains), "param": "chain",
-                          "chain": True})
+            views.append({"transform": rng.choice(chains), "param": "chain", "chain": True})
         else:
             t, p = singles[rng.randrange(len(singles))]
             views.append({"transform": t, "param": p, "chain": False})
@@ -168,8 +169,11 @@ def extract(args: argparse.Namespace) -> dict:
     if randaug:
         views = sample_aug_views(args.random_aug, args.aug_seed)
         name, param = f"randaug{args.random_aug}", f"seed{args.aug_seed}"
-    print(f"[extract] {len(rows)} rows split={args.split} "
-          f"{'chain' if use_chain else 'transform'}={name} param={param}", flush=True)
+    print(
+        f"[extract] {len(rows)} rows split={args.split} "
+        f"{'chain' if use_chain else 'transform'}={name} param={param}",
+        flush=True,
+    )
 
     if not randaug and not use_chain and args.transform == "clean" and param is not None:
         raise ValueError(f"clean takes no param, got {param!r}")
@@ -188,15 +192,20 @@ def extract(args: argparse.Namespace) -> dict:
     precision = args.precision
     if precision == "auto":
         precision = "fp16" if device.startswith("cuda") else "fp32"
-    print(f"[extract] backbone {args.model}/{args.pretrained} "
-          f"device={device} precision={precision}", flush=True)
+    print(
+        f"[extract] backbone {args.model}/{args.pretrained} device={device} precision={precision}",
+        flush=True,
+    )
 
     class _Ds(Dataset):
         def __init__(self) -> None:
             self.broken: list[str] = []
             # randaug: one job per (row, view); rep-major order.
-            self.jobs = ([(i, v) for v in (views or []) for i in range(len(rows))]
-                         if randaug else [(i, None) for i in range(len(rows))])
+            self.jobs = (
+                [(i, v) for v in (views or []) for i in range(len(rows))]
+                if randaug
+                else [(i, None) for i in range(len(rows))]
+            )
 
         def __len__(self) -> int:
             return len(self.jobs)
@@ -224,9 +233,13 @@ def extract(args: argparse.Namespace) -> dict:
                 return torch.zeros(3, 224, 224)
 
     ds = _Ds()
-    loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False,
-                        num_workers=args.workers,
-                        pin_memory=device.startswith("cuda"))
+    loader = DataLoader(
+        ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.workers,
+        pin_memory=device.startswith("cuda"),
+    )
     model, dim = load_backbone(args.model, args.pretrained, device, precision)
     total_imgs = len(ds)
     feats = np.empty((total_imgs, dim), dtype=np.float32)
@@ -242,9 +255,11 @@ def extract(args: argparse.Namespace) -> dict:
                 break
             el = time.perf_counter() - t_all
             idle = time.perf_counter() - state["last_batch"]
-            print(f"[extract] alive: {state['done']}/{total_imgs} "
-                  f"({state['done'] / el:.1f} img/s avg, last batch {idle:.0f}s ago)",
-                  flush=True)
+            print(
+                f"[extract] alive: {state['done']}/{total_imgs} "
+                f"({state['done'] / el:.1f} img/s avg, last batch {idle:.0f}s ago)",
+                flush=True,
+            )
 
     hb = None
     if args.heartbeat > 0:
@@ -265,14 +280,16 @@ def extract(args: argparse.Namespace) -> dict:
             out = out / out.norm(dim=-1, keepdim=True).clamp_min(1e-12)
             t_fwd += time.perf_counter() - t0
             n = out.shape[0]
-            feats[done:done + n] = out.cpu().numpy()
+            feats[done : done + n] = out.cpu().numpy()
             done += n
             state.update(done=done, last_batch=time.perf_counter())
             if done >= next_report or done == total_imgs:
                 el = time.perf_counter() - t_all
                 eta = (total_imgs - done) / (done / el) if done else 0
-                print(f"[extract] {done}/{total_imgs} ({done / el:.1f} img/s, "
-                      f"eta {eta:.0f}s)", flush=True)
+                print(
+                    f"[extract] {done}/{total_imgs} ({done / el:.1f} img/s, eta {eta:.0f}s)",
+                    flush=True,
+                )
                 next_report += args.progress_every
     state["stop"] = True
 
@@ -283,40 +300,60 @@ def extract(args: argparse.Namespace) -> dict:
     np.save(npy_path, feats)
     if randaug:
         assert views is not None
-        out_rows = [{**rows[i], "transform": spec["transform"],
-                     "param": str(spec["param"])}
-                    for spec in views for i in range(len(rows))]
-        write_index(out_rows, stem.parent / (stem.name + ".index.csv"),
-                    extra=("transform", "param"))
+        out_rows = [
+            {**rows[i], "transform": spec["transform"], "param": str(spec["param"])}
+            for spec in views
+            for i in range(len(rows))
+        ]
+        write_index(
+            out_rows, stem.parent / (stem.name + ".index.csv"), extra=("transform", "param")
+        )
     else:
         write_index(rows, stem.parent / (stem.name + ".index.csv"))
     total = time.perf_counter() - t_all
-    meta = {"model": args.model, "pretrained": args.pretrained, "device": device,
-            "precision": precision, "batch_size": args.batch_size,
-            "workers": args.workers, "split": args.split,
-            "transform": name, "param": param, "chain": args.chain,
-            "random_aug": args.random_aug, "aug_seed": args.aug_seed,
-            "n_images": total_imgs,
-            "broken": len(ds.broken), "seconds": round(total, 1),
-            "imgs_per_sec": round(total_imgs / total, 1),
-            "fwd_seconds": round(t_fwd, 1)}
+    meta = {
+        "model": args.model,
+        "pretrained": args.pretrained,
+        "device": device,
+        "precision": precision,
+        "batch_size": args.batch_size,
+        "workers": args.workers,
+        "split": args.split,
+        "transform": name,
+        "param": param,
+        "chain": args.chain,
+        "random_aug": args.random_aug,
+        "aug_seed": args.aug_seed,
+        "n_images": total_imgs,
+        "broken": len(ds.broken),
+        "seconds": round(total, 1),
+        "imgs_per_sec": round(total_imgs / total, 1),
+        "fwd_seconds": round(t_fwd, 1),
+    }
     (stem.parent / (stem.name + ".meta.json")).write_text(json.dumps(meta, indent=2))
     if ds.broken:
-        print(f"[extract] WARNING: {len(ds.broken)} broken, zero-filled "
-              f"(first: {ds.broken[:3]})", flush=True)
-    print(f"[extract] wrote {npy_path} {feats.shape} "
-          f"{meta['imgs_per_sec']} img/s ({total:.0f}s total)", flush=True)
+        print(
+            f"[extract] WARNING: {len(ds.broken)} broken, zero-filled (first: {ds.broken[:3]})",
+            flush=True,
+        )
+    print(
+        f"[extract] wrote {npy_path} {feats.shape} "
+        f"{meta['imgs_per_sec']} img/s ({total:.0f}s total)",
+        flush=True,
+    )
     return meta
 
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Frozen CLIP extraction -> cache (CONTRACTS §3)")
     ap.add_argument("--split", required=True, help="manifest split (train/val/test/heldout)")
-    ap.add_argument("--transform", default="clean",
-                      help="e.g. clean, jpeg, blur (see transforms.yaml)")
+    ap.add_argument(
+        "--transform", default="clean", help="e.g. clean, jpeg, blur (see transforms.yaml)"
+    )
     ap.add_argument("--param", default=None, help="e.g. 70; null/None for clean")
-    ap.add_argument("--chain", default=None,
-                      help="chain name (e.g. screenshot_repost); no --transform with it")
+    ap.add_argument(
+        "--chain", default=None, help="chain name (e.g. screenshot_repost); no --transform with it"
+    )
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
     ap.add_argument("--preproc", type=Path, default=DEFAULT_PREPROC)
@@ -329,13 +366,18 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--limit", type=int, default=0, help="first N rows only (0=all; smoke test)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--skip-broken", action="store_true", help="zero-fill unreadable images")
-    ap.add_argument("--random-aug", type=int, default=0, metavar="K",
-                      help="K random augmented views per row (overnight training set)")
+    ap.add_argument(
+        "--random-aug",
+        type=int,
+        default=0,
+        metavar="K",
+        help="K random augmented views per row (overnight training set)",
+    )
     ap.add_argument("--aug-seed", type=int, default=42)
-    ap.add_argument("--progress-every", type=int, default=1000,
-                      help="progress line every N images")
-    ap.add_argument("--heartbeat", type=int, default=30,
-                      help="alive-line every N sec while blocked (0=off)")
+    ap.add_argument("--progress-every", type=int, default=1000, help="progress line every N images")
+    ap.add_argument(
+        "--heartbeat", type=int, default=30, help="alive-line every N sec while blocked (0=off)"
+    )
     return ap
 
 

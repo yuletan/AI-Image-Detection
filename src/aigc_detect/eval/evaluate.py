@@ -21,7 +21,7 @@ def parse_cache_stem(stem: str, split: str) -> tuple[str, object]:
     """'test_screenshot_repost_chain' -> ('screenshot_repost', 'chain')."""
     from aigc_detect.features.extract import parse_param
 
-    body = stem[len(split) + 1:] if stem.startswith(split + "_") else stem
+    body = stem[len(split) + 1 :] if stem.startswith(split + "_") else stem
     transform, _, raw = body.rpartition("_")
     if not transform:  # no underscore left: whole body is the transform
         transform, raw = body, "None"
@@ -38,12 +38,16 @@ def evaluate_cache(npy_path: Path, probe, thr: float) -> dict:
 
 
 def write_markdown(rows: list[dict], path: Path) -> None:
-    lines = ["| transform | param | n | auroc | acc | tpr@1fpr | ece |",
-             "|---|---|---|---|---|---|---|"]
+    lines = [
+        "| transform | param | n | auroc | acc | tpr@1fpr | ece |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for r in rows:
-        lines.append(f"| {r['transform']} | {r['param']} | {r['n']} | "
-                     f"{r['auroc']:.4f} | {r['acc']:.4f} | "
-                     f"{r['tpr_at_1fpr']:.4f} | {r['ece']:.4f} |")
+        lines.append(
+            f"| {r['transform']} | {r['param']} | {r['n']} | "
+            f"{r['auroc']:.4f} | {r['acc']:.4f} | "
+            f"{r['tpr_at_1fpr']:.4f} | {r['ece']:.4f} |"
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -55,8 +59,7 @@ def write_heatmap(rows: list[dict], path: Path) -> None:
     import numpy as np
 
     labels = [f"{r['transform']}={r['param']}" for r in rows]
-    vals = np.array([[r["auroc"], r["acc"], r["tpr_at_1fpr"], 1.0 - r["ece"]]
-                     for r in rows])
+    vals = np.array([[r["auroc"], r["acc"], r["tpr_at_1fpr"], 1.0 - r["ece"]] for r in rows])
     fig, ax = plt.subplots(figsize=(8, max(3, 0.45 * len(rows) + 1.5)))
     im = ax.matshow(vals, vmin=0.0, vmax=1.0, cmap="RdYlGn")
     ax.set_xticks(range(4), ["auroc", "acc", "tpr@1fpr", "1-ece"])
@@ -85,15 +88,20 @@ def run(args: argparse.Namespace) -> list[dict]:
         transform, param = parse_cache_stem(npy.stem, args.split)
         m = evaluate_cache(npy, probe, thr)
         rows.append({"transform": transform, "param": param, **m})
-        print(f"[eval] {transform}={param} auroc={m['auroc']:.4f} acc={m['acc']:.4f} "
-              f"tpr@1fpr={m['tpr_at_1fpr']:.4f} ece={m['ece']:.4f} n={m['n']}",
-              flush=True)
+        print(
+            f"[eval] {transform}={param} auroc={m['auroc']:.4f} acc={m['acc']:.4f} "
+            f"tpr@1fpr={m['tpr_at_1fpr']:.4f} ece={m['ece']:.4f} n={m['n']}",
+            flush=True,
+        )
     rows.sort(key=lambda r: (r["transform"] != "clean", r["transform"], str(r["param"])))
     (out / "results.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     write_markdown(rows, out / "results.md")
     write_heatmap(rows, out / "heatmap.png")
-    print(f"[eval] wrote {out / 'results.json'} + results.md + heatmap.png "
-          f"({len(rows)} variants, thr={thr})", flush=True)
+    print(
+        f"[eval] wrote {out / 'results.json'} + results.md + heatmap.png "
+        f"({len(rows)} variants, thr={thr})",
+        flush=True,
+    )
     return rows
 
 

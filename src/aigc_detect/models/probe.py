@@ -64,8 +64,7 @@ class LinearProbe:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(path, coef=self.coef_, intercept=self.intercept_, thr=self.thr)
-        path.with_suffix(".json").write_text(json.dumps(self.meta, indent=2),
-                                             encoding="utf-8")
+        path.with_suffix(".json").write_text(json.dumps(self.meta, indent=2), encoding="utf-8")
         return path
 
     @classmethod
@@ -85,19 +84,30 @@ def run(args: argparse.Namespace) -> dict:
     t0 = time.perf_counter()
     Xtr, ytr = load_cache(Path(args.train_npy), Path(args.train_index))
     Xva, yva = load_cache(Path(args.val_npy), Path(args.val_index))
-    print(f"[probe] train {Xtr.shape} pos={sum(ytr)} | val {Xva.shape} pos={sum(yva)}",
-          flush=True)
+    print(f"[probe] train {Xtr.shape} pos={sum(ytr)} | val {Xva.shape} pos={sum(yva)}", flush=True)
     clf = train_probe(Xtr, ytr, C=args.C, seed=args.seed)
-    probe = LinearProbe(clf.coef_.ravel(), float(clf.intercept_[0]), thr=args.thr,
-                        meta={"C": args.C, "seed": args.seed, "thr": args.thr,
-                              "train_rows": len(ytr), "train_npy": str(args.train_npy)})
+    probe = LinearProbe(
+        clf.coef_.ravel(),
+        float(clf.intercept_[0]),
+        thr=args.thr,
+        meta={
+            "C": args.C,
+            "seed": args.seed,
+            "thr": args.thr,
+            "train_rows": len(ytr),
+            "train_npy": str(args.train_npy),
+        },
+    )
     scores = probe.predict_proba(Xva)
     metrics = summarize(yva, scores, thr=args.thr)
     out = Path(args.out)
     probe.save(out / "probe.npz")
-    print(f"[probe] val auroc={metrics['auroc']:.4f} acc={metrics['acc']:.4f} "
-          f"tpr@1fpr={metrics['tpr_at_1fpr']:.4f} ece={metrics['ece']:.4f} "
-          f"({time.perf_counter() - t0:.1f}s) -> {out / 'probe.npz'}", flush=True)
+    print(
+        f"[probe] val auroc={metrics['auroc']:.4f} acc={metrics['acc']:.4f} "
+        f"tpr@1fpr={metrics['tpr_at_1fpr']:.4f} ece={metrics['ece']:.4f} "
+        f"({time.perf_counter() - t0:.1f}s) -> {out / 'probe.npz'}",
+        flush=True,
+    )
     return metrics
 
 

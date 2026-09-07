@@ -8,5 +8,4 @@ CACHE_PATTERN = "{split}_{transform}_{param}.npy"
 
 
 def cache_path(cache_dir: Path | str, split: str, transform: str, param) -> Path:
-    return Path(cache_dir) / CACHE_PATTERN.format(split=split, transform=transform,
-                                                  param=param)
+    return Path(cache_dir) / CACHE_PATTERN.format(split=split, transform=transform, param=param)

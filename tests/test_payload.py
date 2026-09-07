@@ -18,8 +18,10 @@ def _img(path: Path) -> Path:
 
 
 def _manifest(root: Path, rels: list[str]) -> Path:
-    rows = [{"image_path": r, "label": "0", "source": "wildfake",
-             "generator": "ffhq", "split": "train"} for r in rels]
+    rows = [
+        {"image_path": r, "label": "0", "source": "wildfake", "generator": "ffhq", "split": "train"}
+        for r in rels
+    ]
     for r in rels:
         _img(root / r)
     mp = root / "data" / "processed" / "manifest.csv"
@@ -32,8 +34,7 @@ def _manifest(root: Path, rels: list[str]) -> Path:
 
 
 def test_build_payload_copies_tree_and_manifest(tmp_path: Path):
-    rels = ["data/raw/wildfake_subset/Images/Real/ffhq/a.jpg",
-            "data/raw/sid_set_subset/b.jpg"]
+    rels = ["data/raw/wildfake_subset/Images/Real/ffhq/a.jpg", "data/raw/sid_set_subset/b.jpg"]
     mp = _manifest(tmp_path, rels)
     out = tmp_path / "payload"
     info = build_payload(mp, out, root=tmp_path)
@@ -54,8 +55,7 @@ def test_build_payload_fail_closed_on_missing(tmp_path: Path):
 def test_main_writes_zip(tmp_path: Path):
     mp = _manifest(tmp_path, ["data/raw/y.jpg"])
     out = tmp_path / "payload"
-    assert main(["--manifest", str(mp), "--out", str(out),
-                 "--root", str(tmp_path), "--zip"]) == 0
+    assert main(["--manifest", str(mp), "--out", str(out), "--root", str(tmp_path), "--zip"]) == 0
     zf = out.with_suffix(".zip")
     assert zf.is_file()
     with zipfile.ZipFile(zf) as z:
@@ -73,7 +73,6 @@ def test_verify_archive_rejects_garbage(tmp_path: Path):
 def test_verify_archive_checks_entry_count(tmp_path: Path):
     mp = _manifest(tmp_path, ["data/raw/y.jpg"])
     out = tmp_path / "payload"
-    assert main(["--manifest", str(mp), "--out", str(out),
-                 "--root", str(tmp_path), "--zip"]) == 0
+    assert main(["--manifest", str(mp), "--out", str(out), "--root", str(tmp_path), "--zip"]) == 0
     with pytest.raises(RuntimeError, match="expected >="):
         verify_archive(out.with_suffix(".zip"), 10**9)

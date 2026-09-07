@@ -66,8 +66,10 @@ def write_zip(out_dir: Path, archive: Path) -> Path:
             total_in += p.stat().st_size
             if i % 2000 == 0 or i == len(files):
                 el = time.perf_counter() - t0
-                print(f"[payload] zip {i}/{len(files)} "
-                      f"({total_in / 2**30:.2f} GB, {el:.0f}s)", flush=True)
+                print(
+                    f"[payload] zip {i}/{len(files)} ({total_in / 2**30:.2f} GB, {el:.0f}s)",
+                    flush=True,
+                )
     print(f"[payload] zip wrote {tmp.stat().st_size / 2**30:.2f} GB", flush=True)
     tmp.replace(archive)  # atomic on the same volume
     return archive
@@ -87,8 +89,7 @@ def verify_archive(archive: Path, min_files: int) -> int:
     except Exception as e:
         raise RuntimeError(f"archive {archive} is not a valid zip: {e}") from e
     if len(names) < min_files:
-        raise RuntimeError(f"archive {archive}: only {len(names)} entries, "
-                           f"expected >= {min_files}")
+        raise RuntimeError(f"archive {archive}: only {len(names)} entries, expected >= {min_files}")
     if not any(n.endswith("manifest.csv") for n in names):
         raise RuntimeError(f"archive {archive}: manifest.csv missing")
     return len(names)
@@ -104,11 +105,9 @@ def main(argv: list[str] | None = None) -> int:
     info = build_payload(a.manifest, a.out, a.root)
     if a.zip:
         archive = write_zip(a.out, a.out.with_suffix(".zip"))
-        print(f"[payload] archive: {archive} "
-              f"({archive.stat().st_size / 2**30:.2f} GB)", flush=True)
+        print(f"[payload] archive: {archive} ({archive.stat().st_size / 2**30:.2f} GB)", flush=True)
         n = verify_archive(archive, info["n_files"] + 1)
-        print(f"[payload] archive OK: {n} entries, central directory valid",
-              flush=True)
+        print(f"[payload] archive OK: {n} entries, central directory valid", flush=True)
     print(f"[payload] done: {info}", flush=True)
     return 0
 

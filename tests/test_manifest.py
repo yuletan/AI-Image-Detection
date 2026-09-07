@@ -45,8 +45,13 @@ def _noise_img(path: Path, seed: int) -> Path:
 
 
 def _row(img: Path, label: int, gen: str, split: str, source: str = "wildfake") -> dict:
-    return {"image_path": img.as_posix(), "label": label, "source": source,
-            "generator": gen, "split": split}
+    return {
+        "image_path": img.as_posix(),
+        "label": label,
+        "source": source,
+        "generator": gen,
+        "split": split,
+    }
 
 
 def test_schema_columns(tmp_path: Path):
@@ -85,9 +90,11 @@ def test_select_split_balanced_heldout_disjoint_and_dedupes(tmp_path: Path):
     for k in range(3):
         Image.open(dup_src).save(tmp_path / "celebahq" / f"dup{k}.png")
         pools["celebahq"].append((tmp_path / "celebahq" / f"dup{k}.png", 0))
-    quotas = {"train": {"celebahq": 4, "ffhq": 4, "sid_synth": 8},
-              "val": {"celebahq": 1, "ffhq": 1, "sid_synth": 2},
-              "heldout": {"sid_synth_probe": 0}}
+    quotas = {
+        "train": {"celebahq": 4, "ffhq": 4, "sid_synth": 8},
+        "val": {"celebahq": 1, "ffhq": 1, "sid_synth": 2},
+        "heldout": {"sid_synth_probe": 0},
+    }
     rows, removed = select_split(pools, quotas, seed=42)
     assert removed >= 1  # the planted duplicate was caught by pHash
     labs = [r["label"] for r in rows if r["split"] == "train"]
@@ -118,6 +125,5 @@ def test_demo_leak_check_detects_and_cleans(tmp_path: Path):
     shutil.copy(img, demo / "real" / "leak.png")  # exact-byte quarantine violation
     with pytest.raises(RuntimeError):
         check_demo_leak(rows, demo, root=tmp_path.parent, threshold=5)
-    ok2 = check_demo_leak([_row(other, 1, "g", "test")], demo, root=tmp_path.parent,
-                          threshold=5)
+    ok2 = check_demo_leak([_row(other, 1, "g", "test")], demo, root=tmp_path.parent, threshold=5)
     assert ok2["n_demo"] == 1 and ok2["exact_hits"] == ok2["near_hits"] == 0
