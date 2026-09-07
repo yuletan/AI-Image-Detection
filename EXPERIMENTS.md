@@ -82,3 +82,27 @@ Implications:
 - Next cheapest wins (no GPU): E4 TTA + E5 threshold/FPR-drift on the
   v1b_mlp and v1_mlp heads; E6 LOGO to test whether generator diversity
   (not mix) recovers held-out.
+
+## Backbone B: DINOv2 ViT-L/14 v0 (linear probe, clean train; 2026-09-07)
+
+Setup: `timm vit_large_patch14_dinov2.lvd142m`, shared 224 pipeline with
+ImageNet norm, 1024-d L2-normed, fp16 on CUDA (commit `612151c`,
+`--batch-size 128 --workers 4`). 21 caches in `cache_dinov2/` (clean
+train/val/test/heldout + 15 test params + 2 chains): train (20000, 1024),
+val (2000, 1024). Head: same `LogisticRegression(C=1.0)` recipe as CLIP v0.
+Kaggle: `dinov2_v0_probe/` + `dinov2_v0_robustness/` (saved notebook output).
+
+- Val clean: AUROC **0.9806**, acc 0.9255, TPR@1%FPR 0.5900, ECE 0.0227.
+- Test clean (n=4000): AUROC **0.9802**, acc 0.9287, TPR@1%FPR 0.5940.
+- Test mean (18 variants): AUROC **0.9800**, TPR@1%FPR **0.5885**;
+  worst AUROC 0.9787 (noise 0.10), best 0.9808 (`screenshot_repost`).
+  Flat table: every variant within ±0.002 of clean — same "no collapse"
+  shape as CLIP, one level lower.
+- Held-out DDIM (fake-only, acc@0.5): **0.912** vs CLIP v0 0.909.
+
+Verdict: CLIP stays primary (clean +1.3pt AUROC, TPR@1%FPR +26pt:
+0.855 → 0.590). DINOv2's only win is held-out (+0.3pt) — second data
+point for the Day-3 trade-off: backbones, like aug-mix, trade
+in-distribution strict-operating-point power for unseen-generator
+generalisation. Keep as insurance; no E1/E2 repeat on DINOv2 unless
+CLIP held-out regresses further.
