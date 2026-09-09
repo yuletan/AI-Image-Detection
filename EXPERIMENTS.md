@@ -306,6 +306,63 @@ best recipe on cleaned (+diversified if E9 landed) data, full gate,
 freeze, finish write-up. Keep the E6 1/10 scoreboard visible — asset,
 not embarrassment.
 
+## Day-3 results: E8.1 (sid_real real-vs-real probe; 2026-09-09)
+
+Question: is `sid_real` genuine real data, or a distinct distribution? Train
+the v0-recipe linear probe (LogisticRegression C=1.0) on CLIP features to
+separate the two genuine-real families from sid_real, **real rows only**
+(label 0): celebahq+ffhq (8000) vs sid_real (2000); fakes excluded by
+construction. (`scripts/eval_e81_sidreal.py`, 0.8 s CPU;
+`results/e8_sidreal/e8_1_real_vs_real.json`.)
+
+Result: test AUROC **0.9999** (70/30 stratified split), 5-fold CV AUROC
+**0.9999 ± 0.0000**, acc@0.5 0.9943. Verdict: **SYSTEMATIC** — sid_real is
+linearly separable from genuine reals with essentially no error, so it is a
+distinct distribution, not random label noise. E6's sid_real 0.710
+full-train / 0.030 unseen now has a mechanism: these images sit in their own
+feature region and many fall on the fake side of the real/fake boundary.
+
+Implication: quarantine `sid_real` by default (safe), pending E8.2–E8.4 to
+identify what it is (recapture / screenshot / relabelled fake). Relabelling
+vs excluding is an E8.3/E8.4 decision. v2 recipe: v1_mlp minus sid_real.
+
+## Day-3 results: E7a (score blend v0_linear + v1_mlp; 2026-09-09)
+
+Blend `p = sigmoid(α·z0 + (1−α)·z1)`, each head's val logits scaled by their
+val std. **Scale-only, NOT mean-shift:** full z-scoring moves the p=0.5
+boundary and inflates v0 held-out to 0.969; scale-only reproduces the
+published endpoints exactly (α=1 → v0 0.909, α=0 → v1_mlp 0.760). α swept on
+val, 3 MLP seeds averaged. (`scripts/eval_e7a_blend.py`, ~15 s CPU;
+`results/e7a_blend/sweep.json`, `drift_alpha0.7.json`.)
+
+| α | held-out @0.5 | held-out @1%FPR thr | mean TPR@1%FPR | worst TPR | mean AUROC | max FPR@thr |
+|---|---|---|---|---|---|---|
+| 0.0 (=v1_mlp) | 0.760 | 0.242 | 0.8847 | 0.824 | 0.9943 | 0.0173 |
+| 0.5 | 0.826 | 0.327 | 0.8761 | 0.808 | 0.9950 | 0.0153 |
+| **0.7 (pick)** | **0.858** | 0.324 | **0.8633** | 0.778 | 0.9945 | 0.0157 |
+| 0.8 | 0.875 | 0.372 | 0.8523 | 0.765 | 0.9940 | 0.0160 |
+| 1.0 (=v0) | 0.909 | 0.421 | 0.8029 | 0.696 | 0.9918 | 0.0170 |
+
+Findings:
+- Endpoints reproduce exactly, confirming the scale-only normalisation is
+  faithful. Pre-reg "α≈0.5 ≥0.85 on both" is **falsified** (α=0.5 held-out
+  0.826); the feasible window is **α=0.7–0.8** (v0-heavy). Pick α=0.7:
+  held-out 0.858 + mean TPR 0.863 — a genuine Pareto point.
+- FPR drift at α=0.7 stays tight (0.003–0.0157, max on resize 0.25×), so
+  v0's clean training did NOT import v1b-style instability; blend survives
+  the E5 criterion.
+- But the blend does NOT pass the frozen gate: no α gives held-out ≥0.90
+  AND mean TPR ≥0.85 (α≥0.9 clears held-out but drops TPR <0.85; α≤0.8
+  clears TPR but held-out <0.90).
+- Sobering: at the val-frozen 1% FPR threshold, held-out DDIM TPR is only
+  **0.24–0.42 across the whole sweep**. The 0.909 is a p=0.5 artifact; at
+  the deployed operating point the blend still misses most unseen
+  generators. E7a does not fix the operating-point generalisation gap —
+  only E8+E9 (data) can.
+
+E7a verdict: free Pareto improvement, good default head (α≈0.7), but not a
+gate-passer and not a substitute for the data fix.
+
 ## State of play + open decisions (for next agent, 2026-09-09)
 
 Decided (don't relitigate without new data):
@@ -314,22 +371,27 @@ Decided (don't relitigate without new data):
 - Head/mix for fixed-threshold deployment: v1_mlp (full 25/75
   clean/randaug3 + sklearn MLP 512-relu). Only config with stable FPR
   across all 18 variants (E5).
+- E7a blend (v0 + v1_mlp, α≈0.7) is the new best single head: held-out
+  0.858 + mean TPR 0.863, FPR drift ≤0.016 (free, zero new data). Still
+  fails the gate (needs held-out ≥0.90), so it does not remove the data fix.
 - Ship abstain band (flag 10% by TTA-std → 99.4% accuracy-of-rest),
   skip TTA-mean (±0.0004 AUROC, not worth 5× inference).
 - Temperature T\*≈2.5–3.0 before any review queue (halves ECE).
-- Never train without `sid_tampered`; treat `sid_real` as guilty until
-  inspected.
+- Never train without `sid_tampered`; `sid_real` confirmed SYSTEMATIC
+  (E8.1 real-vs-real AUROC 0.9999) → quarantine by default until E8.2–E8.4
+  say what it is.
 
 Open (pick up here):
 1. E3 LoRA: DROPPED, see Day-3 plan closure paragraph (diversity-bound
    per E6 + fine-tuning-transfer warning). Optional MLP width sweep
    {128, 512, 2048} only if someone wants the capacity question sealed.
-2. `sid_real` inspection: contact-sheet the 400 test + 2000 train rows;
-   decide relabel / exclude / keep. Blocks v-final data card.
+2. `sid_real` inspection: E8.1 DONE (systematic). Next E8.0 data-card/
+   forum check, E8.2 cleanlab, E8.3 third-party detectors, E8.4 forensics
+   / contact sheet → relabel vs exclude. Blocks v-final data card.
 3. More fake families for v-final: which datasets, who extracts (needs
    GPU — Kaggle loop pattern in notebooks/kaggle_extract.ipynb reuses
    MANIFEST + skip-exists resume).
-4. v-final recipe: v1_mlp + T\* + abstain band, retrained on
+4. v-final recipe: E7a blend (α≈0.7) + T\* + abstain band, retrained on
    cleaned/diversified data; re-run E4–E6 as the acceptance gate.
 5. Day-3 write-up: Trade-offs section now has three named data points
    (aug-mix E1/E2, backbone DINOv2, diversity E6) + the recurring
@@ -343,13 +405,15 @@ Artifact map (all local paths repo-relative; `results/` is gitignored):
   `results/v0_heldout/`, `results/v0_repro/`,
   `results/{v1,v1b}_{linear,mlp}/seed{0,1,2}/`,
   `results/{v1,v1b}_summary.json`, `results/{e4,e5}_summary.json`,
-  `results/e4_tta/`, `results/e5_threshold/`, `results/e6_logo/`.
+  `results/e4_tta/`, `results/e5_threshold/`, `results/e6_logo/`,
+  `results/e7a_blend/`, `results/e8_sidreal/`.
 - Kaggle-only (saved notebook outputs, NOT in repo): 21 DINOv2 caches
   (`cache_dinov2/`), `dinov2_v0_probe/`, `dinov2_v0_robustness/`.
 - Scripts: `scripts/train_v1.py` (E1/E2), `scripts/eval_e4_e5.py` (E4/E5),
-  `scripts/eval_e6_logo.py` (E6), `scripts/eval_heldout.py`,
-  `scripts/compare_v0_v1.py`. Reruns: E4+E5 ~17 s, E6 ~2 s, tests 34
-  passed 1 skipped (~6 s). Linear seeds deterministic (lbfgs).
+  `scripts/eval_e6_logo.py` (E6), `scripts/eval_e81_sidreal.py` (E8.1),
+  `scripts/eval_e7a_blend.py` (E7a), `scripts/eval_heldout.py`,
+  `scripts/compare_v0_v1.py`. Reruns: E4+E5 ~17 s, E6 ~2 s, E7a ~15 s,
+  E8.1 ~1 s, tests 35 passed (~54 s). Linear seeds deterministic (lbfgs).
 - Branch `feat/data` (ahead of origin until pushed); laptop CPU-only,
   GPU via Kaggle notebook (`notebooks/kaggle_extract.ipynb`).
 - Recurring gotcha: test slices are single-class → acc@0.5, never AUROC;
