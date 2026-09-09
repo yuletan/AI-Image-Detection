@@ -1,4 +1,4 @@
-# EXPERIMENTS.md — Day-1 v0 findings + Day-2 plan
+# EXPERIMENTS.md — full experiment log (v0 → E6) + state of play
 
 ## v0 baseline (linear probe on frozen CLIP ViT-L/14, clean train)
 
@@ -101,11 +101,12 @@ Kaggle: `dinov2_v0_probe/` + `dinov2_v0_robustness/` (saved notebook output).
 - Held-out DDIM (fake-only, acc@0.5): **0.912** vs CLIP v0 0.909.
 
 Verdict: CLIP stays primary (clean +1.3pt AUROC, TPR@1%FPR +26pt:
-0.855 → 0.590). DINOv2's only win is held-out (+0.3pt) — second data
-point for the Day-3 trade-off: backbones, like aug-mix, trade
-in-distribution strict-operating-point power for unseen-generator
-generalisation. Keep as insurance; no E1/E2 repeat on DINOv2 unless
-CLIP held-out regresses further.
+0.855 → 0.590). DINOv2's only apparent win is held-out (+0.3pt) —
+CORRECTION 2026-09-09: at p≈0.9, n=1000, binomial SE≈±1pt, so 0.912 vs
+0.909 is noise-level, not a data point. Demoted: the backbone trade-off
+stands on TPR@1%FPR (26pt gap, solid) only. Pool more held-out rows
+before claiming any generalisation edge. Keep as insurance; no E1/E2
+repeat on DINOv2 unless CLIP held-out regresses further.
 
 ## Day-2 results: E4 (TTA+abstain) + E5 (threshold drift + temp scaling)
 
@@ -135,3 +136,221 @@ E5 — threshold frozen at 1% FPR on clean val, per-variant FPR drift:
   ~0.01). Scaling is monotonic — ranking/FPR-drift numbers are
   unaffected, only probabilities move. Apply T\* before any abstain
   band or human-review queue.
+
+## Day-2 results: E6 (leave-one-generator-out; pre-registered, 2026-09-09)
+
+Question: does leaving one generator family out of training collapse
+detection of that family? (`scripts/eval_e6_logo.py`, 2 s laptop CPU;
+`results/e6_logo/results.json`, seed 0, v0-recipe linear probe on clean
+features. Hypothesis pre-registered in `hypothesis.md`, merged here
+after grading — predictions below are verbatim pre-run.)
+
+Setup: train fakes = 2 families (`sid_synth` 5000, `sid_tampered` 5000);
+train reals = `celebahq`/`ffhq` 4000 each, `sid_real` 2000. Test slices
+are single-class (400–1000 rows → ±2–3 pts noise), so the metric is
+acc@0.5, not AUROC. Reference: full-train v0 → DDIM 0.909.
+
+Pre-run predictions: reals interchangeable (unseen real ~0.94–0.95,
+DDIM ~0.90); losing half the fakes costs 10–15 pts on the unseen fake;
+`leave-synth-out` worse than `leave-tampered-out`; no total collapse
+(P(~0.6) ≈ 15%). Decision rule: fake-LOGO dip ≥ 10 pts → diversity is
+v-final's binding constraint.
+
+| Left out       | Left-out slice (pred) | DDIM held-out (pred) | Hit? |
+|----------------|-----------------------|----------------------|------|
+| `celebahq`     | 1.000 (~0.95)         | 0.932 (~0.90)        | 0/2  |
+| `ffhq`         | 0.991 (~0.95)         | 0.946 (~0.90)        | 0/2  |
+| `sid_real`     | **0.030** (~0.94)     | **0.997** (~0.90)    | 0/2  |
+| `sid_synth`    | 0.531 (0.80–0.85)     | **0.854** (0.83–0.87)| 1/2  |
+| `sid_tampered` | **0.058** (0.85–0.90) | **0.089** (0.85–0.88)| 0/2  |
+
+Score **1/10 numeric, 0/2 directional** (needed real-dip < fake-dip and
+synth-out ≤ tampered-out; got the opposite). Full-train slice baseline
+for context: celebahq 1.000, ffhq 0.9988, sid_real **0.710** (weak even
+with full training), synth 0.998, tampered 0.969.
+
+Findings (all unexpected):
+1. `sid_tampered` is load-bearing for ALL non-synth fake detection.
+   Without it: tampered → 0.058 AND DDIM → 0.089. Synth-only training
+   learns a "fake" concept covering only synth; tampered-family
+   artifacts bridge to DDIM, synth artifacts don't. With 2 fake
+   families, generalisation hangs on ONE of them.
+2. `sid_real` is suspect data: 0.710 even full-train (vs 1.000/0.999 on
+   the other reals), 0.030 unseen — these "real" images look fake to
+   the model. Removing it IMPROVES everything else (tampered 0.997,
+   DDIM 0.997): it trains as label noise. Open: what IS sid_real
+   (recaptures? screenshots?) — inspect before v-final.
+3. Dropping celebahq/ffhq RAISES DDIM (0.932/0.946): fewer clean reals
+   → tighter real cluster → trigger-happier fake boundary (same
+   threshold-shift physics as E5).
+4. val AUROC stays 0.947–0.9935 in every run while slice accuracy
+   collapses — ranking hides the failure, third instance after v0-noise
+   and E5 (always report operating-point metrics).
+
+E6 verdict: diversity, not mix-tuning, is v-final's binding constraint.
+(a) Add fake families; (b) quarantine/investigate sid_real; (c) never
+ship a head trained without tampered. Head choice (v1_mlp) stands, but
+its held-out 0.71–0.80 now reads as tampered-dependence + aug erosion
+combined — E1/E2's trade-off has a named cause.
+
+## Day-3 plan (2026-09-09; external review incorporated, adapted to repo)
+
+E3 closure — DROPPED, no run: "E6 shows errors are diversity-bound
+(LOGO collapse without sid_tampered: 0.058/0.089), not capacity-bound;
+prior work reports fine-tuning CLIP reduces cross-generator transfer
+(Ojha et al. CVPR 2023 — VERIFY before citing). Expected LoRA gain
+concentrates in-distribution, where v1_mlp already saturates (mean
+0.9957/0.8847)." Optional 10-min capacity sanity to close properly:
+MLP width sweep {128, 512, 2048} on cached features — if width doesn't
+matter, the not-capacity-bound claim is sealed.
+
+E6b — rerun LOGO with the v1_mlp recipe (not just v0 linear;
+`scripts/eval_e6_logo.py` + MLP branch, ~2 min CPU). MLP+aug may amplify
+tampered-dependence; must know before v-final commits to the recipe.
+
+E7a — score-blend v0_linear + v1_mlp (CPU seconds; new
+`scripts/eval_e7a_blend.py`). v0 head = `results/v0_probe/probe.npz`
+(best held-out 0.909), v1_mlp heads = `results/v1_mlp/seed{N}/`
+(best robustness 0.8847 mean TPR@1%FPR). Z-normalise each head's val
+logits first (MLP probabilities saturate near 0/1 and would dominate),
+sweep blend α on VAL only, eval 18 variants + held-out, then re-freeze
+the threshold and re-run the E5 drift table on the blend (v0 is
+clean-trained and may import FPR instability). Pre-reg: held-out
+interpolates 0.76→0.91 and mean TPR 0.88→0.80 roughly monotonically; if
+α≈0.5 lands ≥0.85 on both, zero-new-data v-final candidate.
+
+E7b — CLIP+DINOv2 feature concat (CPU minutes, AFTER pulling the
+Kaggle `cache_dinov2/` outputs — ~95k rows × 1024 × 4B ≈ **390 MB**,
+hundreds not tens; download as a versioned dataset, don't re-extract).
+Per-backbone StandardScaler → concat (768+1024=1792-d) → linear + MLP
+on both mixes + trivial score-average; align rows by `index.csv`
+`image_path` (both extractors write manifest order — assert, don't
+assume). Tests whether the backbone trade-off is a plane or a point
+(precedent: AIDE CVPR 2024 hybrid frozen-CLIP features — VERIFY).
+Reads with the DINOv2 noise correction above: expect the TPR gap to
+persist, judge only on operating-point metrics + pooled held-out.
+
+E8 — sid_real audit battery (CPU ~30 min), then quarantine-retrain.
+Cheapest decisive order: E8.0 check the data card/forum threads for
+this dataset FIRST (fastest resolution path if SID reals are already
+characterised); E8.1 real-vs-real probe on `train_clean_None.npy`
+(celebahq+ffhq vs sid_real, LR AUROC ≈ 0.5 → random label noise,
+≥ 0.9 → systematic distribution); E8.2 cleanlab (`pip install
+cleanlab`, 5-fold OOF over 20k train = 5× logreg fits, minutes) for a
+principled suspect list; E8.3 third-party vote — 400 sid_real test rows
++ 400 celebahq control through off-the-shelf HF AI-image detectors, if
+independent detectors also cry fake the noise is externally confirmed;
+E8.4 cheap forensics (PIL EXIF, radial FFT spectra, Laplacian variance,
+ImageHash pHash NN vs fake families — all deps already present).
+Contact sheet: no script on THIS branch (one lives on `feat/features`)
+→ write `scripts/make_sidreal_sheet.py` or port it. Then v2 = v1_mlp
+recipe minus sid_real (or minus relabelled rows) → rerun E5 + E6 +
+held-out. Pre-reg: DDIM 0.85–0.95 (E6 removal effect minus aug
+erosion), FPR stability preserved, sid_real slice drops (expected, now
+justified).
+
+E9 — scoped family expansion (Kaggle GPU; reuse
+`notebooks/kaggle_extract.ipynb` MANIFEST + skip-exists loop. New
+GENERATORS, not new views, so extend the manifest pipeline +
+`data/` payload, not `configs/transforms.yaml`.) At most three: one diffusion family (SD1.5 —
+GenImage or self-generate with diffusers), one GAN family
+(BigGAN/StyleGAN ex-GenImage), one local-edit family (SD-inpaint ~2k,
+random box masks on ffhq/celebahq crops — directly tests the E6
+hypothesis that tamper-style artifacts bridge to DDIM: with tamper
+diversity, the leave-tampered-out 0.089 collapse should shrink).
+Generate/download 1–2k images from a NEVER-trained generator (SDXL or
+SD2.1) as a SECOND held-out — "diversity helps" must be tested on two
+points, DDIM stays untouched. Keep tampered in, family-balance fakes.
+
+E10 — if idle: manifold mixup on cached features (α 0.2–0.4, CPU
+minutes; known to help strict operating points + calibration);
+cross-tab the E4 flagged-10% against transform/family (free figure, may
+expose a systematic pocket).
+
+Hygiene (do with v2): bootstrap CIs — 1000 resamples on the 400-row
+slice accuracies (seconds); the ±2–3pt noise bands asserted in E6 are
+currently unquantified, and E7b/gate calls need real error bars.
+
+Acceptance gate for v-final (PRE-REGISTERED — numbers frozen before
+training; note tension: DDIM≥0.90 and LOGO-fake≥0.60 are FAILED by
+current v1_mlp 0.71–0.80 / 0.058 — that is intentional, the gate forces
+the E8+E9 resolution rather than blessing the status quo):
+
+| Metric | Pass |
+|---|---|
+| val AUROC | ≥ 0.99 |
+| mean TPR@1%FPR (18 variants) | ≥ 0.85 |
+| max FPR @ frozen threshold, any variant | ≤ 0.02 |
+| held-out DDIM | ≥ 0.90 |
+| new held-out family | ≥ 0.85 |
+| LOGO: any fake family | ≥ 0.60 |
+| LOGO: tampered-out DDIM dip | < 15pt (was ~82pt) |
+| abstain: acc-of-rest at 10% flagged | ≥ 0.99 |
+
+Literature search handles (UNVERIFIED — external-model memory,
+early-2025 cutoff; verify identity + claims before citing anything):
+Ojha/Li/Lee universal fake detectors (CVPR 2023, frozen CLIP-L probe
+lineage + fine-tuning-transfer warning); GenImage (NeurIPS 2023 D&B, 8
+families — E9 source); AIDE (CVPR 2024, hybrid frozen-CLIP — E7b
+precedent); DeepfakeBench (NeurIPS 2023 D&B, TPR@FPR conventions);
+cleanlab (E8.2); Wang et al. 2020 CNN-generated-images (aug-training
+lineage); DIRE (ICCV 2023) / LGrad / NPR (CVPR 2024) (non-CLIP features,
+related-work only — GPU-heavy, not Day-3); DiffusionDB (realism-heavy
+held-out alternative); Guo et al. 2017 (temperature scaling — done,
+cite it); HF "AI image detector" spaces/models (E8.3 votes).
+
+Day-3 shape: AM (CPU) E8.0→E8.1 + E7a script, kick off Kaggle E9
+extraction before lunch so GPU runs during CPU work; midday v2 train +
+E5/E6/E6b gate rerun + bootstrap CIs + write-up skeleton; PM v-final =
+best recipe on cleaned (+diversified if E9 landed) data, full gate,
+freeze, finish write-up. Keep the E6 1/10 scoreboard visible — asset,
+not embarrassment.
+
+## State of play + open decisions (for next agent, 2026-09-09)
+
+Decided (don't relitigate without new data):
+- Backbone: frozen CLIP ViT-L/14 primary; DINOv2 insurance only
+  (better held-out +0.3pt, worse everywhere else, esp. TPR@1%FPR).
+- Head/mix for fixed-threshold deployment: v1_mlp (full 25/75
+  clean/randaug3 + sklearn MLP 512-relu). Only config with stable FPR
+  across all 18 variants (E5).
+- Ship abstain band (flag 10% by TTA-std → 99.4% accuracy-of-rest),
+  skip TTA-mean (±0.0004 AUROC, not worth 5× inference).
+- Temperature T\*≈2.5–3.0 before any review queue (halves ECE).
+- Never train without `sid_tampered`; treat `sid_real` as guilty until
+  inspected.
+
+Open (pick up here):
+1. E3 LoRA: DROPPED, see Day-3 plan closure paragraph (diversity-bound
+   per E6 + fine-tuning-transfer warning). Optional MLP width sweep
+   {128, 512, 2048} only if someone wants the capacity question sealed.
+2. `sid_real` inspection: contact-sheet the 400 test + 2000 train rows;
+   decide relabel / exclude / keep. Blocks v-final data card.
+3. More fake families for v-final: which datasets, who extracts (needs
+   GPU — Kaggle loop pattern in notebooks/kaggle_extract.ipynb reuses
+   MANIFEST + skip-exists resume).
+4. v-final recipe: v1_mlp + T\* + abstain band, retrained on
+   cleaned/diversified data; re-run E4–E6 as the acceptance gate.
+5. Day-3 write-up: Trade-offs section now has three named data points
+   (aug-mix E1/E2, backbone DINOv2, diversity E6) + the recurring
+   methods lesson (AUROC hides operating-point failures).
+
+Artifact map (all local paths repo-relative; `results/` is gitignored):
+- Caches `data/kaggle_cache/cache/`: 22 CLIP `.npy` (11.7 MB each:
+  train/val/test/heldout clean + 18 test variants incl. 2 chains) +
+  `train_randaug3_seed42.npy` (60k×768).
+- Heads/tables: `results/v0_robustness/`, `results/v0_probe/`,
+  `results/v0_heldout/`, `results/v0_repro/`,
+  `results/{v1,v1b}_{linear,mlp}/seed{0,1,2}/`,
+  `results/{v1,v1b}_summary.json`, `results/{e4,e5}_summary.json`,
+  `results/e4_tta/`, `results/e5_threshold/`, `results/e6_logo/`.
+- Kaggle-only (saved notebook outputs, NOT in repo): 21 DINOv2 caches
+  (`cache_dinov2/`), `dinov2_v0_probe/`, `dinov2_v0_robustness/`.
+- Scripts: `scripts/train_v1.py` (E1/E2), `scripts/eval_e4_e5.py` (E4/E5),
+  `scripts/eval_e6_logo.py` (E6), `scripts/eval_heldout.py`,
+  `scripts/compare_v0_v1.py`. Reruns: E4+E5 ~17 s, E6 ~2 s, tests 34
+  passed 1 skipped (~6 s). Linear seeds deterministic (lbfgs).
+- Branch `feat/data` (ahead of origin until pushed); laptop CPU-only,
+  GPU via Kaggle notebook (`notebooks/kaggle_extract.ipynb`).
+- Recurring gotcha: test slices are single-class → acc@0.5, never AUROC;
+  always report fixed-threshold metrics alongside ranking ones.
