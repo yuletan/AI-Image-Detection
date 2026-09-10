@@ -363,6 +363,65 @@ Findings:
 E7a verdict: free Pareto improvement, good default head (α≈0.7), but not a
 gate-passer and not a substitute for the data fix.
 
+## Day-3: E8.5 pre-registration (organisers' demo benchmark; 2026-09-09)
+
+**Design (frozen before running):** evaluate existing cached heads on the
+organisers' val set — COCO val2017 (4998 non-AIGC) + DALL·E Advanced (8843
+AIGC) from WildFake. **Never train on it.** This is the only visible proxy
+for the hidden eval (organisers' own data + a transform subset), whose
+score driver is unseen-generator/domain generalisation at operating
+points — exactly our E6 + E5 story. Biggest open unknown: have we built a
+face-AIGC detector or an AIGC detector? (All train reals are
+face-domain.) ETA ~1 h: download + one Kaggle extract pass (~14k imgs) +
+CPU eval of v0 / v1_mlp / E7a-blend heads.
+**Practical:** COCO subset is 4998 vs official 5000 — verify by filename
+overlap, or pull the ModelScope slice to be exact. Read the WildFake card
+(translate) to pin what "DALL·E Advanced" actually is.
+
+**Pre-registered priors (score after running):**
+- DALL·E Advanced acc@0.5, v0: **0.75–0.90** (published CLIP-probe ~0.9
+  numbers come from diverse training sets; we have two narrow SID families).
+- v1_mlp **≤ v0 on DALL·E by 5–15pt** (aug-mix erosion seen on DDIM
+  should replicate).
+- COCO real-acc: **bimodal — either ≥0.95** (CLIP's "real" concept is
+  broad) **or a fat tail <0.85** (real concept is face-specific). No prior
+  on which; that tail risk is why this runs before E9.
+
+**sid_real, reframed:** the SID_Set card may resolve E8 in one click. New
+hypothesis — sid_real is in-the-wild real photos, i.e. the ONLY
+domain-honest reals in train, not label noise. E6's removal effect (all
+improve when it's gone) fits BOTH stories (noise, or OOD reals loosening
+the real cluster). E8.1 (AUROC 0.9999) proves systematic difference either
+way. Decisive CPU tests: (i) sid_real-to-COCO-val centroid distance once
+E8.5 features land — clusters with COCO → in-the-wild reals; (ii) SID_Set
+card + cleanlab + contact sheet + third-party detectors as before.
+**Decision matrix:** label noise → exclude; OOD-but-real → KEEP and
+broaden (COCO train2017 / ImageNet-side reals; train2017 is disjoint from
+forbidden val2017 so legal — state the deployment assumption explicitly).
+If OOD-real, removing sid_real would worsen the domain gap and E6's
+headline becomes "our real class was face-specific" (better than "dirty
+data").
+
+**E9 decision rule (after E8.5):** COCO real-acc low (<0.85) → domain
+diversity binding → GenImage tiny (ImageNet-domain, 8 families) +
+COCO-train2017 reals. COCO fine + DALL·E weak → generator diversity
+binding → self-gen SD-inpaint 2k (tamper-bridge) + fresh held-out
+(SDXL/SD2.1). Either way GenImage tiny (~2.5 GB) is a sound E9 backbone
+(no DALL·E family, keeps val honest). Never train on DALL·E Advanced or
+COCO val2017. CIFAKE only after a pipeline-compat check (if 32×32,
+7× upscaling changes artifacts).
+
+**Compliance/deliverables gap (not yet scheduled):** params <2B — CLIP-L
+304M + head fine, even the CLIP+DINOv2 ensemble (~0.6B), say so in README.
+Transform coverage — map our 18 variants 1:1 onto the organiser table
+(verify JPEG 90, blur σ0.5/1.0 present, not just harsh ends). Unscheduled
+but ~45% of judging weight: `predict.py` (image dir → JSON
+{image_path, pred}, standalone: HF CLIP + head + T\* + threshold, no cache
+infra — test on the val-subset dir = demo footage + E8.5 numbers), README,
+public YouTube demo, Devpost. Budget 2–3 h. Error-analysis material
+already exists (LOGO collapses, FPR drift, sid_real). Add DALL·E val as a
+gate row.
+
 ## State of play + open decisions (for next agent, 2026-09-09)
 
 Decided (don't relitigate without new data):
